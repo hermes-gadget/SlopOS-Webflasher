@@ -75,6 +75,20 @@ function enableBtn(btn, enabled) {
 
 // ── GitHub API ────────────────────────────
 async function fetchReleases() {
+  // Check cache first
+  try {
+    const cached = localStorage.getItem(RELEASES_CACHE_KEY);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < RELEASES_CACHE_TTL) {
+        releaseData = data;
+        log('Using cached release data.', 'dim');
+        updateChannelLabels();
+        return;
+      }
+    }
+  } catch (_) { /* ignore cache errors */ }
+
   log('Fetching release data from GitHub...');
   const resp = await fetch(`${API_BASE}/releases?per_page=10`, {
     headers: { Accept: 'application/vnd.github.v3+json' }
@@ -83,20 +97,30 @@ async function fetchReleases() {
   const releases = await resp.json();
   if (!releases.length) throw new Error('No releases found');
 
-  // Classify: stable = first non-prerelease, beta = latest prerelease
   const stable = releases.find(r => !r.prerelease);
   const beta = releases.find(r => r.prerelease);
 
-  const result = { stable, beta };
-  if (result.stable) result.stable.tag_display = result.stable.tag_name;
-  if (result.beta) result.beta.tag_display = result.beta.tag_name;
+  releaseData = { stable, beta };
+  if (releaseData.stable) releaseData.stable.tag_display = releaseData.stable.tag_name;
+  if (releaseData.beta) releaseData.beta.tag_display = releaseData.beta.tag_name;
 
-  releaseData = result;
-  log(`Found ${releases.length} releases. Stable: ${result.stable?.tag_name || 'none'}, Beta: ${result.beta?.tag_name || 'none'}`);
+  log(`Found ${releases.length} releases. Stable: ${releaseData.stable?.tag_name || 'none'}, Beta: ${releaseData.beta?.tag_name || 'none'}`);
 
-  // Update version labels
-  if (result.stable) {
-    stableVersion.textContent = result.stable.tag_name;
+  // Cache for 5 minutes
+  try {
+    localStorage.setItem(RELEASES_CACHE_KEY, JSON.stringify({
+      data: releaseData,
+      timestamp: Date.now()
+    }));
+  } catch (_) { /* ignore storage errors */ }
+
+  updateChannelLabels();
+}
+
+function updateChannelLabels() {
+  if (!releaseData) return;
+  if (releaseData.stable) {
+    stableVersion.textContent = releaseData.stable.tag_name;
   } else {
     stableVersion.textContent = 'No stable release yet';
     stableCard.classList.add('channel-card--unavailable');
@@ -104,8 +128,8 @@ async function fetchReleases() {
     stableCard.style.opacity = '0.4';
     log('All releases are currently pre-release. Stable channel will be available once a non-prerelease release is published.', 'orange');
   }
-  if (result.beta) {
-    betaVersion.textContent = result.beta.tag_name;
+  if (releaseData.beta) {
+    betaVersion.textContent = releaseData.beta.tag_name;
   }
 }
 
