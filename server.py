@@ -85,4 +85,6 @@ class CORSHandler(http.server.SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     print(f"Serving on http://0.0.0.0:{PORT} (static + firmware proxy)")
-    http.server.HTTPServer(("0.0.0.0", PORT), CORSHandler).serve_forever()
+    http.server.HTTPServer.allow_reuse_address = True
+    srv = http.server.HTTPServer(("0.0.0.0", PORT), CORSHandler)
+    srv.serve_forever()
