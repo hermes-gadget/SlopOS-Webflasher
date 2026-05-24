@@ -89,28 +89,21 @@ async function fetchReleases() {
   if (result.stable) result.stable.tag_display = result.stable.tag_name;
   if (result.beta) result.beta.tag_display = result.beta.tag_name;
 
-  // If stable doesn't exist yet, stable = beta (same)
-  if (!result.stable && result.beta) {
-    result.stable = result.beta;
-    result.stable.tag_display = result.stable.tag_name;
-  }
-
   releaseData = result;
   log(`Found ${releases.length} releases. Stable: ${result.stable?.tag_name || 'none'}, Beta: ${result.beta?.tag_name || 'none'}`);
 
   // Update version labels
   if (result.stable) {
     stableVersion.textContent = result.stable.tag_name;
+  } else {
+    stableVersion.textContent = 'No stable release yet';
+    stableCard.classList.add('channel-card--unavailable');
+    stableCard.style.cursor = 'default';
+    stableCard.style.opacity = '0.4';
+    log('All releases are currently pre-release. Stable channel will be available once a non-prerelease release is published.', 'orange');
   }
   if (result.beta) {
     betaVersion.textContent = result.beta.tag_name;
-  }
-
-  // If same tag for both, note it
-  if (result.stable && result.beta && result.stable.tag_name === result.beta.tag_name) {
-    stableVersion.textContent = result.stable.tag_name + ' (latest)';
-    betaVersion.textContent = result.beta.tag_name + ' (latest)';
-    log('Note: All releases are currently pre-release. Stable and Beta point to the same version.', 'orange');
   }
 }
 
@@ -335,6 +328,11 @@ function createFlashTerminal() {
 
 // ── Channel selection ─────────────────────
 function selectChannel(channel) {
+  // Don't allow selecting stable if no stable release
+  if (channel === 'stable' && !releaseData?.stable) {
+    log('No stable release available yet. Select Beta instead.', 'orange');
+    return;
+  }
   selectedChannel = channel;
   stableCard.classList.toggle('channel-card--selected', channel === 'stable');
   betaCard.classList.toggle('channel-card--selected', channel === 'beta');
@@ -362,16 +360,16 @@ async function init() {
     log('The page will still work, but firmware versions may not display.', 'orange');
   }
 
-  // Auto-select stable
-  if (releaseData && releaseData.stable) {
-    selectChannel('stable');
+  // Auto-select beta (or stable if available)
+  if (releaseData) {
+    selectChannel(releaseData.stable ? 'stable' : 'beta');
   }
 }
 
 // ── Event listeners ───────────────────────
 connectBtn.addEventListener('click', connectSerial);
 
-stableCard.addEventListener('click', () => selectChannel('stable'));
+stableCard.addEventListener('click', () => { if (releaseData?.stable) selectChannel('stable'); });
 betaCard.addEventListener('click', () => selectChannel('beta'));
 
 flashBtn.addEventListener('click', flashFirmware);
