@@ -13,6 +13,7 @@ let releaseData = null;       // { stable: {...}, beta: {...} }
 let serialPort = null;
 let esptoolPromise = null;
 let flashing = false;
+let eraseAll = true;
 
 // ── DOM refs ─────────────────────────────
 const connectBtn = document.getElementById('btn-connect');
@@ -36,6 +37,7 @@ const flashStatus = document.getElementById('flash-status');
 const stepConnect = document.getElementById('step-connect');
 const stepChannel = document.getElementById('step-channel');
 const stepFlash = document.getElementById('step-flash');
+const eraseToggle = document.getElementById('erase-all');
 
 // ── Helpers ──────────────────────────────
 function log(msg, cls = '') {
@@ -222,7 +224,7 @@ async function flashFirmware() {
 
   try {
     setProgress(5, 'Downloading firmware');
-    const firmwareBuf = await downloadBinary(asset.browser_download_url);
+    const firmwareBuf = await downloadBinary(`/api/proxy/firmware/${asset.id}`);
     const binaryString = binaryToBinaryString(firmwareBuf);
 
     setProgress(15, 'Loading esptool-js');
@@ -263,15 +265,16 @@ async function flashFirmware() {
     chipFlash.textContent = typeof flashSize === 'string' ? flashSize : `${flashSize}MB`;
     deviceInfo.classList.add('device-info--visible');
 
-    setProgress(30, 'Erasing and writing firmware');
-    log(`Flashing ${release.tag_name} (${selectedChannel} channel)...`);
+    const modeLabel = eraseAll ? 'Full Erase' : 'Update Only';
+    setProgress(30, `${modeLabel}: writing firmware`);
+    log(`Flashing ${release.tag_name} (${selectedChannel} channel, ${modeLabel})...`);
 
     await loader.writeFlash({
       fileArray: [{ data: binaryString, address: 0 }],
       flashSize: 'keep',
       flashMode: 'keep',
       flashFreq: 'keep',
-      eraseAll: true,
+      eraseAll: eraseAll,
       compress: true,
       reportProgress: (_idx, written, total) => {
         const pct = total > 0 ? Math.round(30 + (written / total) * 65) : 30;
@@ -373,6 +376,13 @@ stableCard.addEventListener('click', () => { if (releaseData?.stable) selectChan
 betaCard.addEventListener('click', () => selectChannel('beta'));
 
 flashBtn.addEventListener('click', flashFirmware);
+
+if (eraseToggle) {
+  eraseToggle.addEventListener('change', () => {
+    eraseAll = eraseToggle.checked;
+    log(`Flash mode: ${eraseAll ? 'Full Erase (wipes settings)' : 'Update Only (preserves settings)'}`, 'dim');
+  });
+}
 
 // Kick off
 init();

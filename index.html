@@ -98,13 +98,26 @@
             <span class="step__status step__status--ready">Ready</span>
           </div>
           <div class="step__body">
-            <p>The firmware binary is downloaded directly from GitHub and flashed over WebSerial. This will erase and replace everything on the device.</p>
+            <p>The firmware binary is downloaded directly from GitHub and flashed over WebSerial.</p>
 
             <!-- Device info -->
             <div class="device-info" id="device-info">
               <div class="device-info__item"><strong>Chip:</strong> <span id="chip-name">-</span></div>
               <div class="device-info__item"><strong>MAC:</strong> <span id="chip-mac">-</span></div>
               <div class="device-info__item"><strong>Flash:</strong> <span id="chip-flash">-</span></div>
+            </div>
+
+            <!-- Erase toggle -->
+            <div class="erase-toggle">
+              <label class="erase-toggle__label">
+                <input type="checkbox" id="erase-all" checked>
+                <span class="erase-toggle__check"></span>
+                <span class="erase-toggle__text">Full Erase <span class="erase-toggle__hint">(wipes settings)</span></span>
+              </label>
+              <div class="erase-toggle__info">
+                <strong>Full Erase</strong> — clears all settings and NVS data. Use for a fresh start or when switching between major versions.<br>
+                <strong>Update Only</strong> — preserves your WiFi, node name, and settings. Use for minor upgrades.
+              </div>
             </div>
 
             <div class="flash-actions">

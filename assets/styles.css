@@ -423,6 +423,72 @@ h1, h2, h3, .font-pixel {
 .footer__links { margin-top: 10px; display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
 .footer__links a { font-size: 12px; }
 
+/* ── Erase Toggle ───────────────────────── */
+.erase-toggle {
+  margin-top: 20px;
+  background: var(--bg-secondary);
+  border: var(--border-w) solid var(--divider);
+  padding: 16px;
+}
+.erase-toggle__label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.erase-toggle__label input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.erase-toggle__check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: var(--border-w) solid var(--divider);
+  background: var(--bg-primary);
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+.erase-toggle__label input:checked + .erase-toggle__check {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.erase-toggle__label input:checked + .erase-toggle__check::after {
+  content: "✕";
+  color: #0A0A0A;
+  font-size: 10px;
+  font-weight: bold;
+}
+.erase-toggle__text {
+  font-family: var(--font-header);
+  font-size: 8px;
+  color: var(--text-primary);
+  text-transform: uppercase;
+}
+.erase-toggle__hint {
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+  text-transform: none;
+}
+.erase-toggle__info {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  font-family: var(--font-body);
+  padding-left: 32px;
+}
+.erase-toggle__info strong {
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+}
+
 /* ── Responsive ─────────────────────────── */
 @media (max-width: 640px) {
   .hero h1 { font-size: 22px; letter-spacing: 2px; }
