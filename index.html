@@ -1,874 +1,170 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>MeshCore MQTT Web Flasher</title>
-    <link rel="stylesheet" href="assets/styles.css?v=20260314-1900">
-  </head>
-  <body>
-    <div class="app-shell">
-      <header class="topbar">
-        <div class="topbar__brand">
-          <p class="eyebrow">UKMesh Utility</p>
-          <div class="topbar__title-row">
-            <h1>MeshCore MQTT Web Flasher</h1>
-            <a class="topbar__home-link" href="https://www.ukmesh.com">Home</a>
-          </div>
-          <p class="topbar__summary">
-            Flash MQTT-ready MeshCore firmware, apply WiFi and broker settings over serial,
-            and verify the device status without leaving the page.
-          </p>
-        </div>
-        <div class="topbar__meta">
-          <div class="meta-pill">
-            <span class="meta-pill__label">Target</span>
-            <span class="meta-pill__value">flasher.ukmesh.com</span>
-          </div>
-          <div class="meta-pill">
-            <span class="meta-pill__label">Firmware</span>
-            <span class="meta-pill__value" id="firmware-version">Loading</span>
-          </div>
-          <button class="button button--primary" id="nav-serial-button" type="button">Connect Serial</button>
-        </div>
-      </header>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SlopOS Web Flasher — flash your T-Deck from the browser</title>
+  <meta name="description" content="Flash SlopOS firmware to your LilyGo T-Deck directly from the browser. Zero tools required. Supports Stable and Beta releases.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Pixelify+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/styles.css?v=20260524">
+</head>
+<body>
 
-      <section class="notice-bar" aria-label="Alpha warning">
-        <div class="notice-bar__badge">Alpha</div>
-        <div class="notice-bar__content">
-          <strong>This flasher is still in alpha.</strong>
-          <span>
-            Use it at your own risk. No liability is accepted for failed flashes,
-            misconfiguration, damaged hardware, or bricked devices.
-          </span>
-        </div>
-      </section>
-
-      <nav class="mode-tabs" id="advanced-tabs" aria-label="Advanced flasher sections" role="tablist" hidden>
-        <button class="mode-tabs__button" data-step-target="read-device" aria-controls="read-device" role="tab" type="button">Backup</button>
-        <button class="mode-tabs__button" data-step-target="choose-board" aria-controls="choose-board" role="tab" type="button">Board</button>
-        <button class="mode-tabs__button" data-step-target="flash-firmware" aria-controls="flash-firmware" role="tab" type="button">Flash</button>
-        <button class="mode-tabs__button" data-step-target="device-settings" aria-controls="device-settings" role="tab" type="button">Device</button>
-        <button class="mode-tabs__button" data-step-target="mqtt-settings" aria-controls="mqtt-settings" role="tab" type="button">MQTT</button>
-        <button class="mode-tabs__button" data-step-target="configure-device" aria-controls="configure-device" role="tab" type="button">Progress</button>
+  <!-- ═══ Top Bar ═══════════════════════════ -->
+  <header class="topbar">
+    <div class="container">
+      <div class="topbar__brand">SLOPOS<span>.xyz</span></div>
+      <nav class="topbar__nav">
+        <a href="https://www.slopos.xyz">Home</a>
+        <a href="https://github.com/hermes-gadget/SlopOS-tdeck" target="_blank">GitHub</a>
+        <a href="https://www.slopos.xyz" class="btn-flash">About</a>
       </nav>
+    </div>
+  </header>
 
-      <main class="workspace">
-        <section class="workflow">
-          <div class="workflow__content">
-            <section class="panel panel--wide mode-gate" id="mode-gate">
-              <div class="panel__header">
-                <div>
-                  <p class="panel__eyebrow">Start Here</p>
-                  <h2>Choose Flasher Mode</h2>
-                </div>
-                <span class="panel__status panel__status--ready">Required</span>
-              </div>
-              <div class="mode-gate__body">
-                <p>Select the workflow before you begin. You can change it later from the sidebar.</p>
-                <div class="mode-gate__options">
-                  <button class="mode-option mode-option--simple" id="mode-simple-button" type="button">
-                    <span class="mode-option__eyebrow">Simple</span>
-                    <strong>Single-destination setup</strong>
-                    <span>Backup, pick a board, flash, then apply device, WiFi, and one MQTT destination.</span>
-                  </button>
-                  <button class="mode-option mode-option--advanced" id="mode-advanced-button" type="button">
-                    <span class="mode-option__eyebrow">Advanced</span>
-                    <strong>Full workflow tabs</strong>
-                    <span>Use the full flasher with tabbed sections, broker pairs, and the detailed serial workflow.</span>
-                  </button>
-                </div>
-              </div>
-            </section>
+  <!-- ═══ Hero ══════════════════════════════ -->
+  <section class="hero">
+    <div class="container">
+      <h1>WEB FLASHER</h1>
+      <p class="subtitle">
+        Flash SlopOS firmware to your LilyGo T-Deck — no tools, no downloads, no account.
+        Just a browser and a USB cable.
+      </p>
+    </div>
+  </section>
 
-            <div id="workflow-panels" hidden>
-            <section class="panel panel--wide step-panel" id="read-device">
-              <div class="panel__header">
-                <div>
-                  <p class="panel__eyebrow">Step 1</p>
-                  <h2>Read Current Device Info</h2>
-                </div>
-                <span class="panel__status panel__status--idle" id="device-read-state">Not read</span>
-              </div>
-              <div class="step-panel__body">
-              <div class="action-row">
-                <button class="button button--primary" id="capture-device-button" type="button">Read Current Device Info</button>
-                <button class="button button--ghost" id="download-backup-button" type="button">Download Backup (.txt)</button>
-              </div>
-              <div class="state-grid device-snapshot-grid">
-                <div class="state-chip">
-                  <span class="state-chip__label">Current Name</span>
-                  <strong id="captured-name">Not captured</strong>
-                </div>
-                <div class="state-chip">
-                  <span class="state-chip__label">Current Latitude</span>
-                  <strong id="captured-lat">Not captured</strong>
-                </div>
-                <div class="state-chip">
-                  <span class="state-chip__label">Current Longitude</span>
-                  <strong id="captured-lon">Not captured</strong>
-                </div>
-                <div class="state-chip">
-                  <span class="state-chip__label">Current Private Key</span>
-                  <strong id="captured-private-key">Not captured</strong>
-                </div>
-                <div class="state-chip">
-                  <span class="state-chip__label">Current Guest Password</span>
-                  <strong id="captured-guest-password">Not captured</strong>
-                </div>
-                <div class="state-chip">
-                  <span class="state-chip__label">Current WiFi SSID</span>
-                  <strong id="captured-wifi-ssid">Not captured</strong>
-                </div>
-                <div class="state-chip state-chip--wide">
-                  <span class="state-chip__label">Current MQTT URIs</span>
-                  <strong id="captured-mqtt-uri">Not captured</strong>
-                </div>
-              </div>
-              <div class="note-list">
-                <p>Read the current device values before flashing. The browser stores the captured identity, guest password, radio, WiFi, and MQTT values locally for this board and pre-fills Step 4 and Step 5 where possible.</p>
-                <p>The backup download is a plain-text snapshot of the captured device values plus the Step 4 and Step 5 values saved in this browser for the current board.</p>
-                <p id="captured-meta">Nothing captured in this browser for this board yet.</p>
-              </div>
-              </div>
-            </section>
+  <!-- ═══ Notice ════════════════════════════ -->
+  <div class="notice-bar" style="display:none;">
+    <span class="notice-bar__badge">Browser</span>
+    <span>Web Serial is not available. Use Chrome, Edge, or Opera with HTTPS or localhost.</span>
+  </div>
 
-            <section class="panel panel--wide step-panel" id="choose-board">
-              <div class="panel__header">
-                <div>
-                  <p class="panel__eyebrow">Step 2</p>
-                  <h2>Choose Board</h2>
-                </div>
-                <span class="panel__status panel__status--ready">Ready</span>
-              </div>
-              <div class="step-panel__body">
-              <div class="board-grid">
-                <div class="field field--span-2">
-                  <span class="field__label">Supported board</span>
-                  <div class="board-picker">
-                    <div class="board-combobox" id="board-combobox">
-                      <button
-                        class="board-combobox__trigger"
-                        id="board-trigger"
-                        type="button"
-                        aria-haspopup="listbox"
-                        aria-expanded="false"
-                      >
-                        <span id="board-trigger-label">Loading</span>
-                      </button>
-                      <div class="board-combobox__menu" id="board-menu" hidden>
-                        <input
-                          class="board-combobox__search"
-                          id="board-search"
-                          type="text"
-                          placeholder="Filter boards"
-                          autocomplete="off"
-                        >
-                        <div class="board-combobox__options" id="board-options" role="listbox"></div>
-                      </div>
-                      <select id="board-select" class="board-combobox__native" aria-hidden="true" tabindex="-1"></select>
-                    </div>
-                  </div>
-                </div>
-                <div class="info-card advanced-only">
-                  <span class="info-card__label">Firmware family</span>
-                  <strong id="firmware-family">Loading</strong>
-                </div>
-                <div class="info-card advanced-only">
-                  <span class="info-card__label">Latest build</span>
-                  <strong id="build-label">Loading</strong>
-                </div>
-                <div class="info-card advanced-only">
-                  <span class="info-card__label">Flash package</span>
-                  <strong id="flash-package">Loading</strong>
-                </div>
-                <div class="info-card advanced-only">
-                  <span class="info-card__label">Hardware check</span>
-                  <strong id="hardware-check">Loading</strong>
-                </div>
-              </div>
-              </div>
-            </section>
+  <!-- ═══ Workflow ═════════════════════════ -->
+  <div class="workflow">
+    <div class="container">
+      <div class="steps">
 
-            <section class="panel panel--wide step-panel" id="flash-firmware">
-              <div class="panel__header">
-                <div>
-                  <p class="panel__eyebrow">Step 3</p>
-                  <h2>Choose Radio Settings and Flash Firmware</h2>
-                </div>
-                <span class="panel__status panel__status--idle" id="flash-state">Idle</span>
-              </div>
-              <div class="step-panel__body">
-              <div class="firmware-branch-selector">
-                <label class="field">
-                  <span class="field__label">Firmware Branch</span>
-                  <select id="firmware-branch" name="firmwareBranch">
-                    <option value="main" selected>Main (Stable)</option>
-                    <option value="dev">Dev (Unstable)</option>
-                  </select>
-                </label>
-              </div>
-              <div class="radio-config">
-                <div class="panel__header panel__header--compact">
-                  <div>
-                    <p class="panel__eyebrow">Radio</p>
-                    <h3>LoRa Profile</h3>
-                  </div>
-                </div>
-                <div class="settings-grid settings-grid--radio" id="radio-settings">
-                  <label class="field field--span-2">
-                    <span class="field__label">Preset</span>
-                    <select id="radio-preset" name="radioPreset">
-                      <option value="EU_UK_RECOMMENDED" selected>EU/UK (Narrow/Recommended)</option>
-                      <option value="EU_UK_LONG_RANGE">EU/UK (Long Range)</option>
-                      <option value="EU_UK_MEDIUM_RANGE">EU/UK (Medium Range)</option>
-                      <option value="US_CA_RECOMMENDED">USA/Canada (Recommended)</option>
-                      <option value="AU_RECOMMENDED">Australia</option>
-                      <option value="AU_VICTORIA">Australia: Victoria</option>
-                      <option value="CZECH_NARROW">Czech Republic (Narrow)</option>
-                      <option value="EU_433_LONG_RANGE">EU 433MHz (Long Range)</option>
-                      <option value="NZ_RECOMMENDED">New Zealand</option>
-                      <option value="NZ_NARROW">New Zealand (Narrow)</option>
-                      <option value="PORTUGAL_433">Portugal 433</option>
-                      <option value="PORTUGAL_868">Portugal 868</option>
-                      <option value="SWITZERLAND">Switzerland</option>
-                      <option value="VIETNAM">Vietnam</option>
-                      <option value="CUSTOM">Custom</option>
-                    </select>
-                  </label>
-                  <label class="field advanced-only">
-                    <span class="field__label">Frequency (MHz)</span>
-                    <input type="text" id="radio-frequency" name="radioFrequency" value="869.618">
-                  </label>
-                  <label class="field advanced-only">
-                    <span class="field__label">Bandwidth (kHz)</span>
-                    <input type="text" id="radio-bandwidth" name="radioBandwidth" value="62.5">
-                  </label>
-                  <label class="field advanced-only">
-                    <span class="field__label">Spreading Factor</span>
-                    <input type="text" id="radio-sf" name="radioSf" value="8">
-                  </label>
-                  <label class="field advanced-only">
-                    <span class="field__label">Coding Rate</span>
-                    <input type="text" id="radio-cr" name="radioCr" value="8">
-                  </label>
-                </div>
-                <div class="radio-config__command advanced-only">
-                  <span class="field__label">MeshCore CLI Command</span>
-                  <strong id="radio-command">set radio 869.525,62.5,8,5</strong>
-                </div>
-              </div>
-              <div class="action-row">
-                    <button class="button button--primary" id="flash-button" type="button">Flash Full Firmware</button>
-                    <button class="button button--secondary" id="update-button" type="button">Flash Update Only</button>
-                    <button class="button button--ghost" id="manifest-button" type="button">View Manifest</button>
-              </div>
-              <div class="artifact-strip">
-                <div class="artifact-strip__item">
-                  <span>Full Image</span>
-                  <strong id="artifact-full-name">Loading</strong>
-                </div>
-                <div class="artifact-strip__item">
-                  <span>Update Image</span>
-                  <strong id="artifact-update-name">Loading</strong>
-                </div>
-              </div>
-              <div class="progress-block">
-                <div class="progress-block__track">
-                  <div class="progress-block__bar" id="flash-progress-bar"></div>
-                </div>
-                <div class="progress-block__meta">
-                  <span id="flash-progress-text">Waiting to start</span>
-                  <span id="flash-progress-percent">0%</span>
-                </div>
-              </div>
-              <div class="note-list">
-                <p>Choose the radio profile first, then flash the firmware. The selected radio command is applied afterward in the Configure Device step, followed by a reboot so the radio changes take effect.</p>
-                <p><code>Flash Update Only</code> now mirrors the official MeshCore browser flasher path: bootloader, partitions, <code>boot_app0</code>, and the app image are written without a full chip erase.</p>
-                <p><code>Flash Full Firmware</code> mirrors the official destructive path: one full image written at <code>0x00000</code> with a full chip erase first, so treat it as recovery / first-install only.</p>
-                <p class="advanced-only">The preset populates the MeshCore CLI command, but you can edit frequency, bandwidth, SF, and CR manually.</p>
-                <p class="advanced-only">The browser handles flashing over Web Serial locally. Firmware binaries are served from this host only.</p>
-              </div>
-              </div>
-            </section>
-
-            <section class="panel panel--wide step-panel" id="device-settings">
-              <div class="panel__header">
-                <div>
-                  <p class="panel__eyebrow">Step 4</p>
-                  <h2>Enter Device and WiFi Settings</h2>
-                </div>
-                <span class="panel__status panel__status--idle">Pending</span>
-              </div>
-              <div class="step-panel__body">
-              <div class="captured-values">
-                <div class="panel__header panel__header--compact">
-                  <div>
-                    <p class="panel__eyebrow">Captured Values</p>
-                    <h3>Stored in This Browser</h3>
-                  </div>
-                </div>
-                <div class="state-grid device-snapshot-grid">
-                  <div class="state-chip">
-                    <span class="state-chip__label">Name</span>
-                    <strong id="prefill-name">Not captured</strong>
-                  </div>
-                  <div class="state-chip">
-                    <span class="state-chip__label">Latitude</span>
-                    <strong id="prefill-lat">Not captured</strong>
-                  </div>
-                  <div class="state-chip">
-                    <span class="state-chip__label">Longitude</span>
-                    <strong id="prefill-lon">Not captured</strong>
-                  </div>
-                  <div class="state-chip">
-                    <span class="state-chip__label">Private Key</span>
-                    <strong id="prefill-private-key">Not captured</strong>
-                  </div>
-                </div>
-              </div>
-              <form class="settings-form-layout" id="settings-form">
-                <section class="settings-section-card">
-                  <div class="settings-section-card__header">
-                    <p class="panel__eyebrow">Identity</p>
-                    <h3>Repeater Identity</h3>
-                  </div>
-                  <div class="settings-grid">
-                    <label class="field field--span-2">
-                      <span class="field__label">Repeater Name</span>
-                      <input
-                        id="repeater-name"
-                        type="text"
-                        name="repeaterName"
-                        maxlength="31"
-                        placeholder="Leave blank to keep the current node name"
-                      >
-                      <span class="field__hint">Optional. MeshCore allows up to 31 characters and rejects `[ ] \ : , ? *`.</span>
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Private Key</span>
-                      <input
-                        id="private-key"
-                        type="password"
-                        name="privateKey"
-                        placeholder="128 hex characters, leave blank to keep the current key"
-                        autocomplete="off"
-                        spellcheck="false"
-                      >
-                      <span class="field__hint">Optional. MeshCore expects a 128-character hex private key and applies it after reboot.</span>
-                    </label>
-                  </div>
-                </section>
-
-                <section class="settings-section-card">
-                  <div class="settings-section-card__header">
-                    <p class="panel__eyebrow">Access</p>
-                    <h3>Passwords And Location</h3>
-                  </div>
-                  <div class="settings-grid">
-                    <label class="field">
-                      <span class="field__label">Guest Password</span>
-                      <input
-                        id="guest-password"
-                        type="password"
-                        name="guestPassword"
-                        maxlength="15"
-                        placeholder="Leave blank to keep the current guest password"
-                        autocomplete="off"
-                      >
-                      <span class="field__hint">Optional. MeshCore stores up to 15 characters.</span>
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Admin Password</span>
-                      <input
-                        id="admin-password"
-                        type="password"
-                        name="adminPassword"
-                        maxlength="15"
-                        placeholder="Leave blank to keep the current admin password"
-                        autocomplete="off"
-                      >
-                      <span class="field__hint">Optional. MeshCore stores up to 15 characters.</span>
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Latitude</span>
-                      <input
-                        id="device-lat"
-                        type="text"
-                        name="deviceLat"
-                        placeholder="Leave blank to keep the current latitude"
-                        inputmode="decimal"
-                      >
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Longitude</span>
-                      <input
-                        id="device-lon"
-                        type="text"
-                        name="deviceLon"
-                        placeholder="Leave blank to keep the current longitude"
-                        inputmode="decimal"
-                      >
-                    </label>
-                  </div>
-                </section>
-
-                <section class="settings-section-card">
-                  <div class="settings-section-card__header">
-                    <p class="panel__eyebrow">WiFi</p>
-                    <h3>Transport Network</h3>
-                  </div>
-                  <div class="settings-grid">
-                    <label class="field">
-                      <span class="field__label">WiFi SSID</span>
-                      <input type="text" name="wifiSsid" value="UKMesh-Radio">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">WiFi Password</span>
-                      <input type="password" name="wifiPassword" value="password123">
-                    </label>
-                  </div>
-                </section>
-              </form>
-              </div>
-            </section>
-
-            <section class="panel panel--wide step-panel" id="mqtt-settings">
-              <div class="panel__header">
-                <div>
-                  <p class="panel__eyebrow">Step 5</p>
-                  <h2>Enter MQTT Settings</h2>
-                </div>
-                <span class="panel__status panel__status--idle" id="settings-state">Pending</span>
-              </div>
-              <div class="step-panel__body">
-              <div class="mqtt-broker-stack">
-                <p class="settings-intro simple-only">Simple mode uses broker 1 only. The new MQTT layout is still applied under the hood when settings are written.</p>
-                <p class="settings-intro advanced-only">Shared model and client version apply to every enabled broker. Each broker pair exposes one primary broker and one optional broker without changing the underlying slot layout.</p>
-                <div class="mqtt-control-strip">
-                <div class="captured-values mqtt-broker-card mqtt-broker-card--compact advanced-only">
-                  <div class="panel__header panel__header--compact">
-                    <div>
-                      <p class="panel__eyebrow">Shared MQTT</p>
-                      <h3>Applies To All Enabled Brokers</h3>
-                    </div>
-                  </div>
-                  <div class="settings-grid">
-                    <label class="field">
-                      <span class="field__label">Model Label</span>
-                      <input type="text" name="model" value="Heltec V3" form="settings-form">
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Client Version</span>
-                      <input type="text" name="clientVersion" value="custom-mqtt-observer/1.0.0" form="settings-form">
-                    </label>
-                  </div>
-                </div>
-
-                <div class="captured-values mqtt-broker-card mqtt-broker-card--compact advanced-only">
-                  <div class="panel__header panel__header--compact">
-                    <div>
-                      <p class="panel__eyebrow">Broker Count</p>
-                      <h3>Additional MQTT Broker Pairs</h3>
-                    </div>
-                  </div>
-                  <div class="settings-grid">
-                    <label class="field">
-                      <span class="field__label">Additional MQTT Servers</span>
-                      <select id="additional-broker-count" name="additionalBrokerCount" form="settings-form">
-                        <option value="0" selected>0</option>
-                        <option value="1">1</option>
-                        <option value="2">2</option>
-                      </select>
-                      <span class="field__hint">Broker pair 1 uses slots 1-2. Add up to 2 more pairs, for 3 visible brokers backed by slots 1-6.</span>
-                    </label>
-                  </div>
-                </div>
-                </div>
-
-                <div class="captured-values mqtt-broker-card mqtt-broker-card--pair">
-                  <div class="panel__header panel__header--compact">
-                    <div>
-                      <p class="panel__eyebrow">Broker Pair 1</p>
-                      <h3><span class="simple-only">Broker 1</span><span class="advanced-only">Broker 1 With Optional Broker 2</span></h3>
-                    </div>
-                  </div>
-                  <div class="settings-grid">
-                    <label class="field field--span-2">
-                      <span class="field__label">Broker 1 URI</span>
-                      <input type="text" name="mqttUri" value="wss://mqtt.ukmesh.com:443/" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 1 Username</span>
-                      <input type="text" name="mqttUsername" value="observer" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 1 Password</span>
-                      <input type="password" name="mqttPassword" value="observer-password" form="settings-form">
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Use MeshCore default topic root</span>
-                      <span class="mqtt-status-toggle">
-                        <input id="mqtt-broker-1-use-default-topic" type="checkbox" form="settings-form" checked>
-                        <span>Use MeshCore default topic root</span>
-                      </span>
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Broker 1 Topic Root</span>
-                      <input type="text" name="topicRoot" value="meshcore" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 1 IATA</span>
-                      <input type="text" name="iata" value="LHR" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label field__label--with-indicator">
-                        <span>Broker 1 Retain Status</span>
-                        <span class="retain-indicator retain-indicator--idle" id="retain-indicator-1">Waiting</span>
-                      </span>
-                      <select name="retainStatus" form="settings-form">
-                        <option value="0">Off</option>
-                        <option value="1">On</option>
-                      </select>
-                    </label>
-                    <label class="field field--span-2 advanced-only" id="mqtt-status-toggle-row-1">
-                      <span class="field__label">Enable optional broker</span>
-                      <span class="mqtt-status-toggle">
-                        <input id="mqtt-status-broker-1-enabled" type="checkbox" name="mqtt-status-broker-1-enabled" form="settings-form">
-                        <span>Enable optional broker</span>
-                      </span>
-                    </label>
-                  </div>
-                  <p class="mqtt-topic-preview" id="mqtt-broker-1-topic-preview"></p>
-                  <div class="settings-grid mqtt-status-section advanced-only" id="mqtt-status-broker-1" hidden>
-                    <div class="mqtt-subsection-title">Optional Broker 2</div>
-                    <label class="field field--span-2">
-                      <span class="field__label">Broker 2 URI</span>
-                      <input type="text" name="mqttBroker2Uri" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 2 Username</span>
-                      <input type="text" name="mqttBroker2Username" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 2 Password</span>
-                      <input type="password" name="mqttBroker2Password" form="settings-form">
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Use MeshCore default topic root</span>
-                      <span class="mqtt-status-toggle">
-                        <input id="mqtt-broker-2-use-default-topic" type="checkbox" form="settings-form">
-                        <span>Use MeshCore default topic root</span>
-                      </span>
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Broker 2 Topic Root</span>
-                      <input type="text" name="mqttBroker2TopicRoot" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 2 IATA</span>
-                      <input type="text" name="mqttBroker2Iata" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 2 Retain Status</span>
-                      <select name="mqttBroker2RetainStatus" form="settings-form">
-                        <option value="0">Off</option>
-                        <option value="1">On</option>
-                      </select>
-                    </label>
-                  </div>
-                  <p class="mqtt-topic-preview" id="mqtt-broker-2-topic-preview"></p>
-                </div>
-
-                <div class="captured-values mqtt-broker-card mqtt-broker-card--pair advanced-only" id="mqtt-logical-broker-2-panel" hidden>
-                  <div class="panel__header panel__header--compact">
-                    <div>
-                      <p class="panel__eyebrow">Broker Pair 2</p>
-                      <h3>Broker 3 With Optional Broker 4</h3>
-                    </div>
-                  </div>
-                  <div class="settings-grid">
-                    <label class="field field--span-2">
-                      <span class="field__label">Broker 3 URI</span>
-                      <input type="text" name="mqttBroker3Uri" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 3 Username</span>
-                      <input type="text" name="mqttBroker3Username" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 3 Password</span>
-                      <input type="password" name="mqttBroker3Password" form="settings-form">
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Use MeshCore default topic root</span>
-                      <span class="mqtt-status-toggle">
-                        <input id="mqtt-broker-3-use-default-topic" type="checkbox" form="settings-form">
-                        <span>Use MeshCore default topic root</span>
-                      </span>
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Broker 3 Topic Root</span>
-                      <input type="text" name="mqttBroker3TopicRoot" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 3 IATA</span>
-                      <input type="text" name="mqttBroker3Iata" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label field__label--with-indicator">
-                        <span>Broker 3 Retain Status</span>
-                        <span class="retain-indicator retain-indicator--idle" id="retain-indicator-3">Waiting</span>
-                      </span>
-                      <select name="mqttBroker3RetainStatus" form="settings-form">
-                        <option value="0">Off</option>
-                        <option value="1">On</option>
-                      </select>
-                    </label>
-                    <label class="field field--span-2" id="mqtt-status-toggle-row-2">
-                      <span class="field__label">Enable optional broker</span>
-                      <span class="mqtt-status-toggle">
-                        <input id="mqtt-status-broker-2-enabled" type="checkbox" name="mqtt-status-broker-2-enabled" form="settings-form">
-                        <span>Enable optional broker</span>
-                      </span>
-                    </label>
-                  </div>
-                  <p class="mqtt-topic-preview" id="mqtt-broker-3-topic-preview"></p>
-                  <div class="settings-grid mqtt-status-section" id="mqtt-status-broker-2" hidden>
-                    <div class="mqtt-subsection-title">Optional Broker 4</div>
-                    <label class="field field--span-2">
-                      <span class="field__label">Broker 4 URI</span>
-                      <input type="text" name="mqttBroker4Uri" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 4 Username</span>
-                      <input type="text" name="mqttBroker4Username" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 4 Password</span>
-                      <input type="password" name="mqttBroker4Password" form="settings-form">
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Use MeshCore default topic root</span>
-                      <span class="mqtt-status-toggle">
-                        <input id="mqtt-broker-4-use-default-topic" type="checkbox" form="settings-form">
-                        <span>Use MeshCore default topic root</span>
-                      </span>
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Broker 4 Topic Root</span>
-                      <input type="text" name="mqttBroker4TopicRoot" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 4 IATA</span>
-                      <input type="text" name="mqttBroker4Iata" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 4 Retain Status</span>
-                      <select name="mqttBroker4RetainStatus" form="settings-form">
-                        <option value="0">Off</option>
-                        <option value="1">On</option>
-                      </select>
-                    </label>
-                  </div>
-                  <p class="mqtt-topic-preview" id="mqtt-broker-4-topic-preview"></p>
-                </div>
-
-                <div class="captured-values mqtt-broker-card mqtt-broker-card--pair advanced-only" id="mqtt-logical-broker-3-panel" hidden>
-                  <div class="panel__header panel__header--compact">
-                    <div>
-                      <p class="panel__eyebrow">Broker Pair 3</p>
-                      <h3>Broker 5 With Optional Broker 6</h3>
-                    </div>
-                  </div>
-                  <div class="settings-grid">
-                    <label class="field field--span-2">
-                      <span class="field__label">Broker 5 URI</span>
-                      <input type="text" name="mqttBroker5Uri" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 5 Username</span>
-                      <input type="text" name="mqttBroker5Username" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 5 Password</span>
-                      <input type="password" name="mqttBroker5Password" form="settings-form">
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Use MeshCore default topic root</span>
-                      <span class="mqtt-status-toggle">
-                        <input id="mqtt-broker-5-use-default-topic" type="checkbox" form="settings-form">
-                        <span>Use MeshCore default topic root</span>
-                      </span>
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Broker 5 Topic Root</span>
-                      <input type="text" name="mqttBroker5TopicRoot" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 5 IATA</span>
-                      <input type="text" name="mqttBroker5Iata" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label field__label--with-indicator">
-                        <span>Broker 5 Retain Status</span>
-                        <span class="retain-indicator retain-indicator--idle" id="retain-indicator-5">Waiting</span>
-                      </span>
-                      <select name="mqttBroker5RetainStatus" form="settings-form">
-                        <option value="0">Off</option>
-                        <option value="1">On</option>
-                      </select>
-                    </label>
-                    <label class="field field--span-2" id="mqtt-status-toggle-row-3">
-                      <span class="field__label">Enable optional broker</span>
-                      <span class="mqtt-status-toggle">
-                        <input id="mqtt-status-broker-3-enabled" type="checkbox" name="mqtt-status-broker-3-enabled" form="settings-form">
-                        <span>Enable optional broker</span>
-                      </span>
-                    </label>
-                  </div>
-                  <p class="mqtt-topic-preview" id="mqtt-broker-5-topic-preview"></p>
-                  <div class="settings-grid mqtt-status-section" id="mqtt-status-broker-3" hidden>
-                    <div class="mqtt-subsection-title">Optional Broker 6</div>
-                    <label class="field field--span-2">
-                      <span class="field__label">Broker 6 URI</span>
-                      <input type="text" name="mqttBroker6Uri" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 6 Username</span>
-                      <input type="text" name="mqttBroker6Username" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 6 Password</span>
-                      <input type="password" name="mqttBroker6Password" form="settings-form">
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Use MeshCore default topic root</span>
-                      <span class="mqtt-status-toggle">
-                        <input id="mqtt-broker-6-use-default-topic" type="checkbox" form="settings-form">
-                        <span>Use MeshCore default topic root</span>
-                      </span>
-                    </label>
-                    <label class="field field--span-2">
-                      <span class="field__label">Broker 6 Topic Root</span>
-                      <input type="text" name="mqttBroker6TopicRoot" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 6 IATA</span>
-                      <input type="text" name="mqttBroker6Iata" form="settings-form">
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Broker 6 Retain Status</span>
-                      <select name="mqttBroker6RetainStatus" form="settings-form">
-                        <option value="0">Off</option>
-                        <option value="1">On</option>
-                      </select>
-                    </label>
-                  </div>
-                  <p class="mqtt-topic-preview" id="mqtt-broker-6-topic-preview"></p>
-                </div>
-              </div>
-              <div class="settings-actions">
-                <div class="action-row settings-actions__row settings-actions__row--primary">
-                  <button class="button button--secondary settings-actions__apply" id="settings-apply-device-wifi-button" type="button">Apply Device + WiFi</button>
-                  <button class="button button--secondary settings-actions__apply" id="settings-apply-mqtt-button" type="button">Apply MQTT</button>
-                </div>
-              </div>
-              </div>
-            </section>
-
-            <section class="panel panel--wide step-panel" id="configure-device">
-              <div class="panel__header">
-                <div>
-                  <p class="panel__eyebrow">Step 6</p>
-                  <h2>Configuration Progress</h2>
-                </div>
-                <span class="panel__status panel__status--idle" id="serial-state">Serial disconnected</span>
-              </div>
-              <div class="step-panel__body">
-              <ol class="command-list" id="command-list">
-                <li class="command-list__item is-pending"><span>Connect USB serial</span><strong>Pending</strong></li>
-                <li class="command-list__item is-pending"><span>Write radio settings</span><strong>Pending</strong></li>
-                <li class="command-list__item is-pending"><span>Write repeater identity</span><strong>Pending</strong></li>
-                <li class="command-list__item is-pending"><span>Write WiFi settings</span><strong>Pending</strong></li>
-                <li class="command-list__item is-pending"><span>Write MQTT settings</span><strong>Pending</strong></li>
-                <li class="command-list__item is-pending"><span>Reboot device</span><strong>Pending</strong></li>
-              </ol>
-              <div class="command-preview">
-                <div class="panel__header panel__header--compact">
-                  <div>
-                    <p class="panel__eyebrow">Serial Payload</p>
-                    <h3>Command Preview</h3>
-                  </div>
-                </div>
-                <div class="command-preview__pane" id="command-preview-pane" aria-live="polite"></div>
-              </div>
-              </div>
-            </section>
+        <!-- Step 1: Connect -->
+        <div class="step" id="step-connect">
+          <div class="step__header">
+            <div class="step__num">1</div>
+            <div class="step__title">Connect Your T-Deck</div>
+            <span class="step__status step__status--ready">Not connected</span>
+          </div>
+          <div class="step__body">
+            <p>Plug in your LilyGo T-Deck via USB and click the button below. Your browser will ask you to select the serial port.</p>
+            <div class="flash-actions">
+              <button class="btn" id="btn-connect" type="button">Connect T-Deck</button>
             </div>
           </div>
-        </section>
+        </div>
 
-        <aside class="sidebar">
-          <section class="panel panel--compact">
-          <section class="panel panel--compact">
-            <div class="panel__header">
-              <div>
-                <p class="panel__eyebrow">Browser</p>
-                <h2>Capability Check</h2>
-              </div>
-            </div>
-            <div class="compatibility-card">
-              <strong id="cap-overall">Checking</strong>
-              <p id="cap-summary">Verifying browser support for HTTPS and Web Serial.</p>
-            </div>
-          </section>
+        <!-- Step 2: Channel -->
+        <div class="step" id="step-channel">
+          <div class="step__header">
+            <div class="step__num">2</div>
+            <div class="step__title">Choose Firmware</div>
+            <span class="step__status step__status--ready">Select a channel</span>
+          </div>
+          <div class="step__body">
+            <p>Pick your firmware channel. Stable is the latest tested build. Beta has the newest features but may be less tested.</p>
+            <div class="channel-selector">
 
-          <section class="panel panel--compact">
-            <div class="panel__header">
-              <div>
-                <p class="panel__eyebrow">Connection</p>
-                <h2>Current State</h2>
+              <div class="channel-card" id="channel-stable">
+                <div class="channel-card__badge channel-card__badge--stable">Stable</div>
+                <div class="channel-card__name">Stable Release</div>
+                <div class="channel-card__desc">Latest tested firmware for everyday use.</div>
+                <div class="channel-card__version" id="stable-version">Loading...</div>
               </div>
-            </div>
-            <div class="state-grid">
-              <div class="state-chip">
-                <span class="state-chip__label">Board</span>
-                <strong id="state-board">Loading</strong>
-              </div>
-              <div class="state-chip">
-                <span class="state-chip__label">Flash</span>
-                <strong id="state-flash">Not started</strong>
-              </div>
-              <div class="state-chip">
-                <span class="state-chip__label">Serial</span>
-                <strong id="state-serial">Disconnected</strong>
-              </div>
-              <div class="state-chip">
-                <span class="state-chip__label">MQTT</span>
-                <strong id="state-mqtt">Awaiting verify</strong>
-              </div>
-            </div>
-          </section>
 
-          <section class="panel panel--compact">
-            <div class="panel__header">
-              <div>
-                <p class="panel__eyebrow">Live Output</p>
-                <h2>Serial Log</h2>
+              <div class="channel-card" id="channel-beta">
+                <div class="channel-card__badge channel-card__badge--beta">Beta</div>
+                <div class="channel-card__name">Beta Release</div>
+                <div class="channel-card__desc">Cutting-edge features from active development.</div>
+                <div class="channel-card__version" id="beta-version">Loading...</div>
               </div>
-              <button class="button button--ghost button--small" id="clear-log-button">Clear</button>
-            </div>
-            <div class="log-pane" id="log-pane" aria-live="polite">
-              <p><span>13:20:40</span> Ready. Select a board and start flashing.</p>
-            </div>
-          </section>
 
-        </aside>
-      </main>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3: Flash -->
+        <div class="step" id="step-flash">
+          <div class="step__header">
+            <div class="step__num">3</div>
+            <div class="step__title">Flash Firmware</div>
+            <span class="step__status step__status--ready">Ready</span>
+          </div>
+          <div class="step__body">
+            <p>The firmware binary is downloaded directly from GitHub and flashed over WebSerial. This will erase and replace everything on the device.</p>
+
+            <!-- Device info -->
+            <div class="device-info" id="device-info">
+              <div class="device-info__item"><strong>Chip:</strong> <span id="chip-name">-</span></div>
+              <div class="device-info__item"><strong>MAC:</strong> <span id="chip-mac">-</span></div>
+              <div class="device-info__item"><strong>Flash:</strong> <span id="chip-flash">-</span></div>
+            </div>
+
+            <div class="flash-actions">
+              <button class="btn btn--danger" id="btn-flash" type="button" disabled>Flash Firmware</button>
+            </div>
+
+            <!-- Progress -->
+            <div class="progress-wrap" id="progress-wrap">
+              <div class="progress-bar">
+                <div class="progress-bar__fill" id="progress-fill"></div>
+              </div>
+              <div class="progress-label">
+                <span id="progress-label">Preparing</span>
+                <span class="progress-percent" id="progress-percent">0%</span>
+              </div>
+            </div>
+
+            <!-- Console log -->
+            <div class="console" id="console">
+              <div class="console__inner" id="console-log"></div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
     </div>
+  </div>
 
-    <script src="assets/firmware-data.js?v=20260314-2300"></script>
-    <script src="assets/app.js?v=20260321-1410"></script>
-  </body>
+  <!-- ═══ CTA ═══════════════════════════════ -->
+  <div class="cta-section">
+    <div class="container">
+      <h2 style="font-family:'Press Start 2P',monospace;font-size:11px;color:var(--accent);margin-bottom:16px;text-transform:uppercase;">Need Help?</h2>
+      <p>
+        Put your T-Deck into bootloader mode by holding the BOOT button,
+        tapping RESET, then releasing BOOT. The flasher handles this automatically
+        in most cases.
+      </p>
+      <a href="https://github.com/hermes-gadget/SlopOS-tdeck/blob/dev/CONTRIBUTING.md" class="btn btn--outline" target="_blank">Flashing Guide</a>
+    </div>
+  </div>
+
+  <!-- ═══ Footer ════════════════════════════ -->
+  <footer class="footer">
+    <div class="container">
+      <p>
+        SlopOS is not affiliated with LilyGo or Espressif Systems.
+        Built with <span class="heart">&hearts;</span> by the mesh community.
+        Everything is <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank">GPL-3.0</a> licensed.
+      </p>
+      <div class="footer__links">
+        <a href="https://www.slopos.xyz" target="_blank">Home</a>
+        <a href="https://github.com/hermes-gadget/SlopOS-tdeck" target="_blank">Firmware</a>
+        <a href="https://github.com/hermes-gadget/SlopOS-client" target="_blank">Client</a>
+        <a href="https://github.com/hermes-gadget/slopos.xyz" target="_blank">Site Source</a>
+        <a href="https://github.com/hermes-gadget/SlopOS-Webflasher" target="_blank">Flasher Source</a>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="assets/app.js?v=20260524"></script>
+</body>
 </html>

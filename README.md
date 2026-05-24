@@ -1,49 +1,75 @@
-# MeshCore-MQTT-WebFlasher
+# SlopOS Web Flasher
 
-Standalone web flasher and serial configurator for MeshCore MQTT repeater firmware.
+Browser-based firmware flasher for the LilyGo T-Deck running [SlopOS](https://github.com/hermes-gadget/SlopOS-tdeck).
 
-This repository ships a static browser application that can:
+Flash firmware directly from the browser over WebSerial. No tools, no accounts, no downloads required.
 
-- flash published MeshCore MQTT firmware images over Web Serial
-- capture existing device settings before changes are made
-- apply radio, identity, WiFi, and MQTT settings from the same page
-- verify the resulting runtime state after configuration
-- serve the flasher through Nginx, Docker Compose, and an optional Cloudflare tunnel
+## Features
 
-The application is designed for ESP32 and ESP32-S3 MeshCore repeater targets whose
-firmware binaries and manifests are committed into this repository under `firmware/`.
+- **Zero-install** — open the page, connect your T-Deck, and flash
+- **Stable & Beta channels** — pick your firmware version from GitHub releases
+- **Pixel theme** — matches the slopos.xyz design language
+- **Single merged binary** — downloads `firmware-merged.bin` from GitHub and flashes at offset 0x0
+- **No backend** — fully static, fetches binaries directly from GitHub
 
 ## Quick Start
 
-### Run locally with Docker
+### Run locally
 
 ```bash
-docker compose up --build -d
+python3 -m http.server 8080
 ```
 
 Open `http://127.0.0.1:8080`.
 
-### Production deployment
-
-1. Copy `.env.example` to `.env`.
-2. Set `CLOUDFLARED_TOKEN`.
-3. Start the stack:
+### Run with Docker
 
 ```bash
 docker compose up --build -d
 ```
 
-The static site is served by Nginx on port `8080`, and `cloudflared` can publish it
-through the configured tunnel.
+Open `http://127.0.0.1:8081`.
 
-## Documentation
+## Architecture
 
-Project documentation lives in [`docs/`](./docs/README.md).
+The flasher is a fully static single-page application:
 
-- [`docs/README.md`](./docs/README.md): documentation index
-- [`docs/project-overview.md`](./docs/project-overview.md): purpose, repo layout, supported hardware
-- [`docs/user-guide.md`](./docs/user-guide.md): operator workflow from backup to verification
-- [`docs/configuration-reference.md`](./docs/configuration-reference.md): full field and command reference
-- [`docs/architecture.md`](./docs/architecture.md): frontend, serial, flash, and data architecture
-- [`docs/deployment.md`](./docs/deployment.md): local preview, container deployment, publishing workflow
-- [`docs/troubleshooting.md`](./docs/troubleshooting.md): common failure modes and recovery steps
+- `index.html` — pixel-themed UI (Press Start 2P headers, Pixelify Sans body)
+- `assets/app.js` — GitHub API integration, channel selection, esptool-js flashing
+- `assets/styles.css` — pixel theme matching slopos.xyz
+- `assets/vendor/esptool-js-bundle.js` — browser ESP32 flashing library
+
+Firmware binaries are fetched at runtime from GitHub release assets — they are not bundled in this repo.
+
+## How it works
+
+1. **Connect** — browser WebSerial connects to the T-Deck's UART
+2. **Choose channel** — pick Stable (latest release) or Beta (latest pre-release)
+3. **Flash** — esptool-js downloads the firmware-merged.bin from GitHub and writes it via serial bootloader
+4. **Reset** — device reboots into SlopOS
+
+## Requirements
+
+- Chrome, Edge, or Opera (WebSerial API)
+- HTTPS or localhost
+- LilyGo T-Deck (ESP32-S3) with USB connected
+- Firmware release on GitHub with a `firmware-merged.bin` asset
+
+### Manual bootloader entry
+
+If automatic bootloader detection fails:
+
+1. Hold the **BOOT** button on the T-Deck
+2. Tap **RESET**
+3. Release **BOOT**
+4. Click **Flash** in the browser (within 5 seconds)
+
+## Development
+
+```bash
+git clone https://github.com/hermes-gadget/SlopOS-Webflasher.git
+cd SlopOS-Webflasher
+python3 -m http.server 8080
+```
+
+Open `http://127.0.0.1:8080`.

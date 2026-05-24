@@ -2,25 +2,7 @@ services:
   flasher-site:
     build:
       context: .
-    container_name: meshcore-mqtt-webflasher
+    container_name: slopos-webflasher
     restart: unless-stopped
     ports:
-      - "8080:80"
-    networks:
-      - flasher
-
-  cloudflared:
-    image: cloudflare/cloudflared:2026.2.0
-    container_name: meshcore-mqtt-cloudflared
-    restart: unless-stopped
-    depends_on:
-      - flasher-site
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TOKEN}
-    environment:
-      TUNNEL_METRICS: 0.0.0.0:20241
-    networks:
-      - flasher
-
-networks:
-  flasher:
-    driver: bridge
+      - "8081:80"
