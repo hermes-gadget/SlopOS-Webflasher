@@ -162,12 +162,8 @@ async function connectSerial() {
     const usbPid = portInfo.usbProductId?.toString(16) || '?';
     log(`Connected: USB VID=${usbVid} PID=${usbPid}`);
     if (usbVid === '303a') {
-      log('Native USB-serial-JTAG detected. You may need to enter bootloader mode manually before flashing.', 'orange');
-      log('Hold BOOT, tap RESET, release BOOT — then click Flash.', 'orange');
+      log('Native USB-serial-JTAG detected. Enter download mode before flashing: hold BOOT, tap RESET, release BOOT.', 'orange');
     }
-
-    // Open the port for later flashing (esptool-js handles this)
-    await serialPort.open({ baudRate: 115200 });
 
     setStepStatus(stepConnect, 'success', 'Connected');
     connectBtn.textContent = 'Disconnect';
@@ -247,10 +243,8 @@ async function flashFirmware() {
     log('Connecting to ESP32-S3 bootloader...');
     log('Tip: if it hangs, hold BOOT, tap RESET, release BOOT, then click Flash again.', 'dim');
 
-    // Close the serial port first (esptool-js will reopen)
-    try { await serialPort.close(); } catch (e) {}
-
-    const transport = new Transport(serialPort, true);
+    // Pass the port to esptool-js (it opens and manages the connection natively)
+    const transport = new Transport(serialPort);
     const loader = new ESPLoader({
       transport,
       baudrate: 115200,
