@@ -123,6 +123,11 @@ async function downloadBinary(url) {
   return buf;
 }
 
+async function withTimeout(promise, ms, msg) {
+  const timer = new Promise((_, reject) => setTimeout(() => reject(new Error(msg || `Timed out after ${ms}ms`)), ms));
+  return Promise.race([promise, timer]);
+}
+
 function binaryToBinaryString(buf) {
   const bytes = new Uint8Array(buf);
   let s = '';
@@ -153,7 +158,13 @@ async function connectSerial() {
 
     const info = serialPort.getInfo || (() => ({}));
     const portInfo = info.call ? info.call(serialPort) : {};
-    log(`Connected: USB VID=${portInfo.usbVendorId?.toString(16) || '?'} PID=${portInfo.usbProductId?.toString(16) || '?'}`);
+    const usbVid = portInfo.usbVendorId?.toString(16) || '?';
+    const usbPid = portInfo.usbProductId?.toString(16) || '?';
+    log(`Connected: USB VID=${usbVid} PID=${usbPid}`);
+    if (usbVid === '303a') {
+      log('Native USB-serial-JTAG detected. You may need to enter bootloader mode manually before flashing.', 'orange');
+      log('Hold BOOT, tap RESET, release BOOT — then click Flash.', 'orange');
+    }
 
     // Open the port for later flashing (esptool-js handles this)
     await serialPort.open({ baudRate: 115200 });
@@ -234,6 +245,7 @@ async function flashFirmware() {
 
     setProgress(20, 'Connecting to bootloader');
     log('Connecting to ESP32-S3 bootloader...');
+    log('Tip: if it hangs, hold BOOT, tap RESET, release BOOT, then click Flash again.', 'dim');
 
     // Close the serial port first (esptool-js will reopen)
     try { await serialPort.close(); } catch (e) {}
@@ -248,7 +260,11 @@ async function flashFirmware() {
     });
     loader.hr = new HardReset(transport);
 
-    const chipInfo = await loader.main();
+    const chipInfo = await withTimeout(
+      loader.main(),
+      12000,
+      'Timed out connecting to ESP32-S3. Put the T-Deck in download mode: hold BOOT, tap RESET, release BOOT, then click Flash.'
+    );
     log(`Chip detected: ${chipInfo || 'ESP32-S3'}`, 'green');
 
     // Show device info
