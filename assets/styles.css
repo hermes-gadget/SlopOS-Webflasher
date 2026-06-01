@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════
-   SlopOS Web Flasher — Pixel Theme
+   SigurdOS Web Flasher — Pixel Theme
    ═══════════════════════════════════════ */
 
 :root {
@@ -94,6 +94,18 @@ h1, h2, h3, .font-pixel {
 .topbar__nav .btn-flash:hover {
   background: transparent;
   color: var(--accent);
+}
+
+/* ── Banner ────────────────────────────────── */
+.banner {
+  width: 100%;
+  overflow: hidden;
+  border-bottom: 2px solid #222;
+}
+.banner img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 /* ── Hero Section ───────────────────────── */

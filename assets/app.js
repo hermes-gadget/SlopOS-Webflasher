@@ -1,9 +1,9 @@
 /* ═══════════════════════════════════════
-   SlopOS Web Flasher — Flash Logic
+   SigurdOS Web Flasher — Flash Logic
    ═══════════════════════════════════════ */
 
 const GITHUB_OWNER = 'hermes-gadget';
-const GITHUB_REPO = 'SlopOS-tdeck';
+const GITHUB_REPO = 'SigurdOS-tdeck';
 const API_BASE = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}`;
 const RELEASES_CACHE_KEY = 'slopos-releases-cache';
 const RELEASES_CACHE_TTL = 5 * 60 * 1000; // 5 min
@@ -328,7 +328,7 @@ async function flashFirmware() {
     setProgress(100, 'Done!');
     setStepStatus(stepFlash, 'success', 'Flashed!');
     log(`✓ ${release.tag_name} flashed successfully!`, 'green');
-    log('Your T-Deck is rebooting. It should boot into SlopOS momentarily.', 'green');
+    log('Your T-Deck is rebooting. It should boot into SigurdOS momentarily.', 'green');
     flashBtn.textContent = 'Flash Complete ✓';
     serialPort = null;
   } catch (err) {

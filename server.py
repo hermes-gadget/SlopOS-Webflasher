@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SlopOS Web Flasher Server - serves static files + proxies firmware downloads."""
+"""SigurdOS Web Flasher Server - serves static files + proxies firmware downloads."""
 
 import http.server
 import json
@@ -9,7 +9,7 @@ import urllib.request
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8082
 
-GITHUB_API = "https://api.github.com/repos/hermes-gadget/SlopOS-tdeck/releases/assets"
+GITHUB_API = "https://api.github.com/repos/hermes-gadget/SigurdOS-tdeck/releases/assets"
 
 class CORSHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
@@ -32,7 +32,7 @@ class CORSHandler(http.server.SimpleHTTPRequestHandler):
             url = f"{GITHUB_API}/{asset_id}"
             req = urllib.request.Request(url, headers={
                 "Accept": "application/octet-stream",
-                "User-Agent": "SlopOSWebFlasher/1.0",
+                "User-Agent": "SigurdOSWebFlasher/1.0",
             })
             try:
                 with urllib.request.urlopen(req) as resp:
@@ -60,7 +60,7 @@ class CORSHandler(http.server.SimpleHTTPRequestHandler):
                 return
             tile_url = f"https://tile.openstreetmap.org/{z}/{x}/{y}.png"
             req = urllib.request.Request(tile_url, headers={
-                "User-Agent": "SlopOSTileProxy/1.0",
+                "User-Agent": "SigurdOSTileProxy/1.0",
             })
             try:
                 with urllib.request.urlopen(req, timeout=10) as resp:
