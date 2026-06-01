@@ -5,7 +5,7 @@
 const GITHUB_OWNER = 'hermes-gadget';
 const GITHUB_REPO = 'SigurdOS-tdeck';
 const API_BASE = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}`;
-const RELEASES_CACHE_KEY = 'slopos-releases-cache';
+const RELEASES_CACHE_KEY = 'sigurdos-releases-cache';
 const RELEASES_CACHE_TTL = 5 * 60 * 1000; // 5 min
 
 let selectedChannel = null;   // 'stable' | 'beta'

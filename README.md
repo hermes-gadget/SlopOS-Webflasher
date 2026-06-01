@@ -1,6 +1,6 @@
-# SlopOS Web Flasher
+# SigurdOS Web Flasher
 
-Browser-based firmware flasher for the LilyGo T-Deck running [SlopOS](https://github.com/hermes-gadget/SlopOS-tdeck).
+Browser-based firmware flasher for the LilyGo T-Deck running [SigurdOS](https://github.com/hermes-gadget/SigurdOS-tdeck).
 
 Flash firmware directly from the browser over WebSerial. No tools, no accounts, no downloads required.
 
@@ -8,7 +8,7 @@ Flash firmware directly from the browser over WebSerial. No tools, no accounts, 
 
 - **Zero-install** — open the page, connect your T-Deck, and flash
 - **Stable & Beta channels** — pick your firmware version from GitHub releases
-- **Pixel theme** — matches the slopos.xyz design language
+- **Pixel theme** — matches the sigurdos.dev design language
 - **Single merged binary** — downloads `firmware-merged.bin` from GitHub and flashes at offset 0x0
 - **No backend** — fully static, fetches binaries directly from GitHub
 
@@ -36,7 +36,7 @@ The flasher is a fully static single-page application:
 
 - `index.html` — pixel-themed UI (Press Start 2P headers, Pixelify Sans body)
 - `assets/app.js` — GitHub API integration, channel selection, esptool-js flashing
-- `assets/styles.css` — pixel theme matching slopos.xyz
+- `assets/styles.css` — pixel theme matching sigurdos.dev
 - `assets/vendor/esptool-js-bundle.js` — browser ESP32 flashing library
 
 Firmware binaries are fetched at runtime from GitHub release assets — they are not bundled in this repo.
@@ -46,7 +46,7 @@ Firmware binaries are fetched at runtime from GitHub release assets — they are
 1. **Connect** — browser WebSerial connects to the T-Deck's UART
 2. **Choose channel** — pick Stable (latest release) or Beta (latest pre-release)
 3. **Flash** — esptool-js downloads the firmware-merged.bin from GitHub and writes it via serial bootloader
-4. **Reset** — device reboots into SlopOS
+4. **Reset** — device reboots into SigurdOS
 
 ## Requirements
 
@@ -67,8 +67,8 @@ If automatic bootloader detection fails:
 ## Development
 
 ```bash
-git clone https://github.com/hermes-gadget/SlopOS-Webflasher.git
-cd SlopOS-Webflasher
+git clone https://github.com/hermes-gadget/SigurdOS-Webflasher.git
+cd SigurdOS-Webflasher
 python3 -m http.server 8080
 ```
 

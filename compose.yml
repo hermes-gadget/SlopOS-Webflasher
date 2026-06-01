@@ -2,7 +2,7 @@ services:
   flasher-site:
     build:
       context: .
-    container_name: slopos-webflasher
+    container_name: sigurdos-webflasher
     restart: unless-stopped
     ports:
       - "8081:80"
