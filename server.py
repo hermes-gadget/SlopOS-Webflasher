@@ -5,6 +5,7 @@ import http.server
 import json
 import os
 import sys
+import urllib.parse
 import urllib.request
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8082
@@ -49,7 +50,7 @@ class CORSHandler(http.server.SimpleHTTPRequestHandler):
 
         if self.path.startswith("/api/proxy/tile?"):
             # /api/proxy/tile?z={z}&x={x}&y={y} — proxies OSM tiles with CORS
-            import urllib.parse
+            # urllib.parse imported at module level
             params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             try:
                 z = params["z"][0]
