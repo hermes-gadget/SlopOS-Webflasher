@@ -91,7 +91,7 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
         "Referrer-Policy": "strict-origin-when-cross-origin",
         "X-XSS-Protection": "0",  # Deprecated, but belt-and-suspenders
         "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
-        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), interest-cohort=(), serial=(self)",
     }
 
     # CSP — very restrictive for downloaded firmware
@@ -279,7 +279,38 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
             return super().do_GET()
 
         # ── Static files (existing behavior) ─────────────
+        # JS files: serve directly so we can control caching
+        if path.endswith(".js"):
+            self.serve_static_js(path)
+            return
+
         return super().do_GET()
+
+    def serve_static_js(self, path):
+        """Serve a .js file with no-cache headers to avoid stale Cloudflare cache."""
+        docroot = os.getcwd()
+        filepath = os.path.join(docroot, path.lstrip("/"))
+        filepath = os.path.normpath(filepath)
+        # Security: must be within docroot
+        if not filepath.startswith(os.path.normpath(docroot) + os.sep):
+            self.send_error(404)
+            return
+        if not os.path.isfile(filepath):
+            self.send_error(404)
+            return
+        try:
+            with open(filepath, "rb") as f:
+                data = f.read()
+        except OSError:
+            self.send_error(500)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/javascript")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache, must-revalidate")
+        self.end_headers()
+        if not getattr(self, '_is_head', False):
+            self.wfile.write(data)
 
 
 # ── main ────────────────────────────────────────────────

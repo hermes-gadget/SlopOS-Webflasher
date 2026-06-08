@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Pixelify+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/styles.css?v=20260524e">
+  <link rel="stylesheet" href="assets/styles.css?v=20260608d">
 </head>
 <body>
 
@@ -155,41 +155,40 @@
   <!-- ═══ Firmware Downloads ════════════════ -->
   <div class="firmware-downloads">
     <div class="container">
-      <h2 class="fd-title">DIRECT DOWNLOADS</h2>
-      <p class="fd-subtitle">Download firmware binaries directly — no browser flashing required.</p>
-
-      <div class="fd-grid">
-        <div class="fd-card">
-          <div class="fd-card__badge fd-card__badge--latest">Latest</div>
-          <h3 class="fd-card__title">Stable / Latest</h3>
-          <p class="fd-card__desc">The most recent tested release.</p>
-          <div class="fd-card__links">
-            <a href="/latest/firmware-merged.bin" class="fd-link">firmware-merged.bin</a>
-            <a href="/latest/firmware.bin" class="fd-link">firmware.bin</a>
+      <h2 class="fd-title">DOWNLOAD FIRMWARE</h2>
+      <p class="fd-subtitle">Download the latest firmware for your T-Deck. Right-click a button to copy the direct URL.</p>
+      <div class="fd-channels">
+        <div class="fd-channel fd-channel--beta">
+          <div class="fd-channel__header">
+            <span class="fd-badge fd-badge--beta">Beta</span>
+            <span class="fd-version" id="beta-version">Latest</span>
           </div>
-          <code class="fd-path">/latest/firmware-merged.bin</code>
+          <div class="fd-channel__buttons">
+            <a href="/dev/firmware-merged.bin" class="fd-btn fd-btn--beta" download>
+              <span class="fd-btn__label">firmware-merged.bin</span>
+              <span class="fd-btn__hint">Full flash (recommended)</span>
+            </a>
+            <a href="/dev/firmware.bin" class="fd-btn fd-btn--beta" download>
+              <span class="fd-btn__label">firmware.bin</span>
+              <span class="fd-btn__hint">App update only</span>
+            </a>
+          </div>
         </div>
-
-        <div class="fd-card">
-          <div class="fd-card__badge fd-card__badge--dev">Dev</div>
-          <h3 class="fd-card__title">Beta / Dev</h3>
-          <p class="fd-card__desc">Latest prerelease with newest features.</p>
-          <div class="fd-card__links">
-            <a href="/dev/firmware-merged.bin" class="fd-link">firmware-merged.bin</a>
-            <a href="/dev/firmware.bin" class="fd-link">firmware.bin</a>
-            <a href="/dev/manifest.json" class="fd-link">manifest.json</a>
+        <div class="fd-channel fd-channel--stable fd-channel--disabled">
+          <div class="fd-channel__header">
+            <span class="fd-badge fd-badge--stable">Stable</span>
+            <span class="fd-version">No release yet</span>
           </div>
-          <code class="fd-path">/dev/firmware-merged.bin</code>
-        </div>
-
-        <div class="fd-card fd-card--wide">
-          <div class="fd-card__badge fd-card__badge--archive">Archive</div>
-          <h3 class="fd-card__title">Release Archive</h3>
-          <p class="fd-card__desc">Every firmware release ever published, organised by version.</p>
-          <div class="fd-card__archive-links" id="archive-links">
-            <span class="fd-loading">Loading releases...</span>
+          <div class="fd-channel__buttons">
+            <a class="fd-btn fd-btn--disabled">
+              <span class="fd-btn__label">firmware-merged.bin</span>
+              <span class="fd-btn__hint">Coming soon</span>
+            </a>
+            <a class="fd-btn fd-btn--disabled">
+              <span class="fd-btn__label">firmware.bin</span>
+              <span class="fd-btn__hint">Coming soon</span>
+            </a>
           </div>
-          <code class="fd-path">/archive/beta/beta-0.1.40/firmware-merged.bin</code>
         </div>
       </div>
     </div>
@@ -226,37 +225,17 @@
     </div>
   </footer>
 
-  <script type="module" src="assets/app.js?v=20260524e"></script>
+  <script type="module" src="assets/app.js?v=20260608d"></script>
 
-  <!-- Archive list populator -->
+  <!-- Show current version in download section -->
   <script>
-  (async function() {
-    const container = document.getElementById('archive-links');
-    if (!container) return;
-    try {
-      const resp = await fetch('/api/releases', { headers: { Accept: 'application/json' } });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const releases = await resp.json();
-      if (!releases.length) { container.innerHTML = '<span class="fd-loading">No releases found.</span>'; return; }
-      let html = '';
-      for (const rel of releases.slice(0, 20)) {
-        const channel = rel.prerelease ? 'beta' : 'stable';
-        const tag = rel.tag_name;
-        const files = rel.assets || [];
-        if (!files.length) continue;
-        html += `<div class="fd-version-group"><div class="fd-version-label">${tag}</div><div class="fd-version-files">`;
-        for (const f of files) {
-          if (f.name.endsWith('.bin') || f.name === 'manifest.json') {
-            html += `<a href="/archive/${channel}/${tag}/${f.name}" class="fd-archive-link" download>${f.name}</a>`;
-          }
-        }
-        html += `</div></div>`;
-      }
-      container.innerHTML = html || '<span class="fd-loading">No firmware files.</span>';
-    } catch (err) {
-      container.innerHTML = `<span class="fd-error">Failed to load: ${err.message}</span>`;
-    }
-  })();
+  fetch('/api/releases', { headers: { Accept: 'application/json' } })
+    .then(r => r.json())
+    .then(releases => {
+      const el = document.getElementById('beta-version');
+      if (el && releases.length) el.textContent = releases[0].tag_name;
+    })
+    .catch(() => {});
   </script>
 </body>
 </html>
