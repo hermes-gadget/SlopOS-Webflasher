@@ -152,6 +152,49 @@
     </div>
   </div>
 
+  <!-- ═══ Firmware Downloads ════════════════ -->
+  <div class="firmware-downloads">
+    <div class="container">
+      <h2 class="fd-title">DIRECT DOWNLOADS</h2>
+      <p class="fd-subtitle">Download firmware binaries directly — no browser flashing required.</p>
+
+      <div class="fd-grid">
+        <div class="fd-card">
+          <div class="fd-card__badge fd-card__badge--latest">Latest</div>
+          <h3 class="fd-card__title">Stable / Latest</h3>
+          <p class="fd-card__desc">The most recent tested release.</p>
+          <div class="fd-card__links">
+            <a href="/latest/firmware-merged.bin" class="fd-link">firmware-merged.bin</a>
+            <a href="/latest/firmware.bin" class="fd-link">firmware.bin</a>
+          </div>
+          <code class="fd-path">/latest/firmware-merged.bin</code>
+        </div>
+
+        <div class="fd-card">
+          <div class="fd-card__badge fd-card__badge--dev">Dev</div>
+          <h3 class="fd-card__title">Beta / Dev</h3>
+          <p class="fd-card__desc">Latest prerelease with newest features.</p>
+          <div class="fd-card__links">
+            <a href="/dev/firmware-merged.bin" class="fd-link">firmware-merged.bin</a>
+            <a href="/dev/firmware.bin" class="fd-link">firmware.bin</a>
+            <a href="/dev/manifest.json" class="fd-link">manifest.json</a>
+          </div>
+          <code class="fd-path">/dev/firmware-merged.bin</code>
+        </div>
+
+        <div class="fd-card fd-card--wide">
+          <div class="fd-card__badge fd-card__badge--archive">Archive</div>
+          <h3 class="fd-card__title">Release Archive</h3>
+          <p class="fd-card__desc">Every firmware release ever published, organised by version.</p>
+          <div class="fd-card__archive-links" id="archive-links">
+            <span class="fd-loading">Loading releases...</span>
+          </div>
+          <code class="fd-path">/archive/beta/beta-0.1.40/firmware-merged.bin</code>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ CTA ═══════════════════════════════ -->
   <div class="cta-section">
     <div class="container">
@@ -184,5 +227,36 @@
   </footer>
 
   <script type="module" src="assets/app.js?v=20260524e"></script>
+
+  <!-- Archive list populator -->
+  <script>
+  (async function() {
+    const container = document.getElementById('archive-links');
+    if (!container) return;
+    try {
+      const resp = await fetch('/api/releases', { headers: { Accept: 'application/json' } });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const releases = await resp.json();
+      if (!releases.length) { container.innerHTML = '<span class="fd-loading">No releases found.</span>'; return; }
+      let html = '';
+      for (const rel of releases.slice(0, 20)) {
+        const channel = rel.prerelease ? 'beta' : 'stable';
+        const tag = rel.tag_name;
+        const files = rel.assets || [];
+        if (!files.length) continue;
+        html += `<div class="fd-version-group"><div class="fd-version-label">${tag}</div><div class="fd-version-files">`;
+        for (const f of files) {
+          if (f.name.endsWith('.bin') || f.name === 'manifest.json') {
+            html += `<a href="/archive/${channel}/${tag}/${f.name}" class="fd-archive-link" download>${f.name}</a>`;
+          }
+        }
+        html += `</div></div>`;
+      }
+      container.innerHTML = html || '<span class="fd-loading">No firmware files.</span>';
+    } catch (err) {
+      container.innerHTML = `<span class="fd-error">Failed to load: ${err.message}</span>`;
+    }
+  })();
+  </script>
 </body>
 </html>

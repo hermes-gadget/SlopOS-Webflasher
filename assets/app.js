@@ -1,10 +1,11 @@
 /* ═══════════════════════════════════════
    SigurdOS Web Flasher — Flash Logic
+   ═══════════════════════════════════════
+   Fetches release data and firmware from local API (firmware vault),
+   not from GitHub. Data is synced by sync_firmware.py cron job.
    ═══════════════════════════════════════ */
 
-const GITHUB_OWNER = 'hermes-gadget';
-const GITHUB_REPO = 'SigurdOS-tdeck';
-const API_BASE = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}`;
+const API_BASE = '/api';
 const RELEASES_CACHE_KEY = 'sigurdos-releases-cache';
 const RELEASES_CACHE_TTL = 5 * 60 * 1000; // 5 min
 
@@ -73,9 +74,9 @@ function enableBtn(btn, enabled) {
   btn.disabled = !enabled;
 }
 
-// ── GitHub API ────────────────────────────
+// ── Local API ─────────────────────────────
 async function fetchReleases() {
-  // Check cache first
+  // Check local cache first (avoids unnecessary requests)
   try {
     const cached = localStorage.getItem(RELEASES_CACHE_KEY);
     if (cached) {
@@ -89,20 +90,18 @@ async function fetchReleases() {
     }
   } catch (_) { /* ignore cache errors */ }
 
-  log('Fetching release data from GitHub...');
-  const resp = await fetch(`${API_BASE}/releases?per_page=10`, {
-    headers: { Accept: 'application/vnd.github.v3+json' }
+  log('Fetching release data...');
+  const resp = await fetch(`${API_BASE}/releases`, {
+    headers: { Accept: 'application/json' }
   });
-  if (!resp.ok) throw new Error(`GitHub API error: ${resp.status}`);
+  if (!resp.ok) throw new Error(`API error: ${resp.status}`);
   const releases = await resp.json();
   if (!releases.length) throw new Error('No releases found');
 
-  const stable = releases.find(r => !r.prerelease);
-  const beta = releases.find(r => r.prerelease);
+  const stable = releases.find(r => !r.prerelease) || null;
+  const beta = releases.find(r => r.prerelease) || null;
 
   releaseData = { stable, beta };
-  if (releaseData.stable) releaseData.stable.tag_display = releaseData.stable.tag_name;
-  if (releaseData.beta) releaseData.beta.tag_display = releaseData.beta.tag_name;
 
   log(`Found ${releases.length} releases. Stable: ${releaseData.stable?.tag_name || 'none'}, Beta: ${releaseData.beta?.tag_name || 'none'}`);
 
@@ -133,9 +132,11 @@ function updateChannelLabels() {
   }
 }
 
-function getReleaseAsset(release, name) {
-  if (!release || !release.assets) return null;
-  return release.assets.find(a => a.name === name);
+function getFirmwareUrl(channel, filename) {
+  // Local firmware URL: /api/firmware/<dev|lates>/<filename>
+  // dev -> latest prerelease, latest -> latest stable (or dev if no stable)
+  const channelPath = channel === 'stable' ? 'latest' : 'dev';
+  return `${API_BASE}/firmware/${channelPath}/${filename}`;
 }
 
 async function downloadBinary(url) {
@@ -235,27 +236,14 @@ async function flashFirmware() {
   setProgress(2, 'Loading flasher library');
   consoleEl.classList.add('console--visible');
 
-  const release = releaseData[selectedChannel];
-  if (!release) {
-    log(`No ${selectedChannel} release available.`, 'red');
-    setStepStatus(stepFlash, 'error', 'Failed');
-    flashing = false;
-    enableBtn(flashBtn, true);
-    return;
-  }
+  const channel = selectedChannel;
 
-  const asset = getReleaseAsset(release, 'firmware-merged.bin');
-  if (!asset) {
-    log(`No firmware-merged.bin found in ${release.tag_name}.`, 'red');
-    setStepStatus(stepFlash, 'error', 'Failed');
-    flashing = false;
-    enableBtn(flashBtn, true);
-    return;
-  }
+  // Build download URL from local firmware vault
+  const firmwareUrl = getFirmwareUrl(channel, 'firmware-merged.bin');
 
   try {
     setProgress(5, 'Downloading firmware');
-    const firmwareBuf = await downloadBinary(`/api/proxy/firmware/${asset.id}`);
+    const firmwareBuf = await downloadBinary(firmwareUrl);
     const binaryString = binaryToBinaryString(firmwareBuf);
 
     setProgress(15, 'Loading esptool-js');
@@ -299,9 +287,10 @@ async function flashFirmware() {
     chipFlash.textContent = typeof flashSize === 'string' ? flashSize : `${flashSize}MB`;
     deviceInfo.classList.add('device-info--visible');
 
+    const tagName = releaseData?.[channel]?.tag_name || channel;
     const modeLabel = eraseAll ? 'Full Erase' : 'Update Only';
     setProgress(30, `${modeLabel}: writing firmware`);
-    log(`Flashing ${release.tag_name} (${selectedChannel} channel, ${modeLabel})...`);
+    log(`Flashing ${tagName} (${channel} channel, ${modeLabel})...`);
 
     await loader.writeFlash({
       fileArray: [{ data: binaryString, address: 0 }],
@@ -327,7 +316,7 @@ async function flashFirmware() {
 
     setProgress(100, 'Done!');
     setStepStatus(stepFlash, 'success', 'Flashed!');
-    log(`✓ ${release.tag_name} flashed successfully!`, 'green');
+    log(`✓ ${tagName} flashed successfully!`, 'green');
     log('Your T-Deck is rebooting. It should boot into SigurdOS momentarily.', 'green');
     flashBtn.textContent = 'Flash Complete ✓';
     serialPort = null;
@@ -377,7 +366,7 @@ function selectChannel(channel) {
   enableBtn(flashBtn, !!(serialPort && releaseData));
   const label = channel === 'stable' ? 'Stable' : 'Beta';
   flashBtn.textContent = `Flash ${label} Firmware`;
-  log(`Selected ${label} channel: ${releaseData[channel]?.tag_name || 'latest'}`, 'green');
+  log(`Selected ${label} channel: ${releaseData?.[channel]?.tag_name || 'latest'}`, 'green');
 }
 
 // ── Init ──────────────────────────────────
@@ -389,7 +378,7 @@ async function init() {
     return;
   }
 
-  // Fetch releases
+  // Fetch releases from local API
   try {
     await fetchReleases();
   } catch (err) {
