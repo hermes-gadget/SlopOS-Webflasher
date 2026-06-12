@@ -733,13 +733,6 @@ h1, h2, h3, .font-pixel {
   background: var(--bg-secondary);
 }
 
-/* ── Read Log button ─────────────────────── */
-.read-log-group {
-  display: flex;
-  gap: 12px;
-  margin-top: 12px;
-}
-
 @keyframes glitch {
   0%, 90%, 100% { transform: translate(0); }
   92% { transform: translate(-2px, 1px); }

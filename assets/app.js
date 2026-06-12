@@ -197,8 +197,6 @@ async function connectSerial() {
     setStepStatus(stepConnect, 'success', 'Connected');
     connectBtn.textContent = 'Disconnect';
     enableBtn(connectBtn, true);
-    // Show Read Log button for debug reconnect scenarios
-    document.getElementById('read-log-group').style.display = 'flex';
     log('Serial port ready for flashing.', 'green');
   } catch (err) {
     setStepStatus(stepConnect, 'error', 'Failed');
@@ -220,8 +218,6 @@ async function disconnectSerial() {
   setStepStatus(stepConnect, 'ready', 'Not connected');
   connectBtn.textContent = 'Connect T-Deck';
   enableBtn(connectBtn, true);
-  // Hide Read Log button
-  document.getElementById('read-log-group').style.display = 'none';
   log('Serial disconnected.', 'dim');
 }
 
@@ -547,63 +543,6 @@ function downloadDebugLog() {
   logCapture('\n📄 Debug report downloaded.', 'green');
 }
 
-// ── Read Log (reconnect scenario) ──────────
-async function readDebugLog() {
-  if (!serialPort) {
-    log('Connect a T-Deck first!', 'red');
-    return;
-  }
-
-  captureRunning = true;
-  captureBuffer = '';
-  captureStartTime = Date.now();
-
-  showCaptureUI(true);
-  logCapture('Reading serial output for 5 seconds...\n', 'dim');
-
-  captureTimerInterval = setInterval(updateCaptureStats, 1000);
-
-  // Read for 5 seconds
-  const readPromise = (async () => {
-    try {
-      while (captureRunning && serialPort.readable) {
-        const reader = serialPort.readable.getReader();
-        try {
-          while (captureRunning) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            const text = new TextDecoder().decode(value);
-            captureBuffer += text;
-            logCapture(text);
-          }
-        } finally {
-          reader.releaseLock();
-        }
-      }
-    } catch (err) {
-      if (captureRunning) logCapture(`\n[error] ${err.message}`, 'red');
-    }
-  })();
-
-  // Auto-stop after 5 seconds
-  await sleep(5000);
-  captureRunning = false;
-  await sleep(100); // Let reader finish
-
-  if (captureTimerInterval) {
-    clearInterval(captureTimerInterval);
-    captureTimerInterval = null;
-  }
-
-  logCapture('\nCapture complete. Download the log above.', 'green');
-  document.getElementById('capture-status').innerHTML = '<span class="rec-dot"></span> Done';
-  setStepStatus(
-    document.getElementById('step-capture'),
-    'success',
-    'Captured'
-  );
-}
-
 // ── Channel selection ─────────────────────
 function selectChannel(channel) {
   // Don't allow selecting stable if no stable release
@@ -660,9 +599,6 @@ flashBtn.addEventListener('click', flashFirmware);
 document.getElementById('btn-download-log')?.addEventListener('click', downloadDebugLog);
 document.getElementById('btn-clear-capture')?.addEventListener('click', clearCapture);
 document.getElementById('btn-stop-capture')?.addEventListener('click', stopCapture);
-
-// Read Log (reconnect scenario)
-document.getElementById('btn-read-log')?.addEventListener('click', readDebugLog);
 
 if (eraseToggle) {
   eraseToggle.addEventListener('change', () => {
