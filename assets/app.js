@@ -197,6 +197,19 @@ async function connectSerial() {
     setStepStatus(stepConnect, 'success', 'Connected');
     connectBtn.textContent = 'Disconnect';
     enableBtn(connectBtn, true);
+
+    // If capture mode is active (debug flash just finished), start monitoring immediately
+    if (captureRunning) {
+      try {
+        await serialPort.open({ baudRate: 115200 });
+      } catch (e) {
+        log(`Failed to open serial: ${e.message}`, 'red');
+      }
+      log('Starting serial monitor...', 'green');
+      beginCaptureRead();
+      return;
+    }
+
     log('Serial port ready for flashing.', 'green');
   } catch (err) {
     setStepStatus(stepConnect, 'error', 'Failed');
@@ -329,9 +342,9 @@ async function flashFirmware() {
     log(`✓ ${tagName} flashed successfully!`, 'green');
 
     if (channel === 'debug') {
-      log('Debug firmware flashed! Starting serial monitor...', 'green');
-      flashBtn.textContent = 'Monitor Active';
-      // Clean up esptool-js transport and discard the old port
+      log('✓ Debug firmware flashed!', 'green');
+      flashBtn.textContent = 'Flash Complete ✓';
+      // Clean up esptool-js transport
       try {
         if (transport) {
           if (typeof transport.disconnect === 'function') {
@@ -341,8 +354,8 @@ async function flashFirmware() {
           }
         }
       } catch (_) {}
-      serialPort = null; // Port is stale after reset — discard it
-      startSerialMonitor(); // Will acquire fresh connection via getPorts()
+      serialPort = null;
+      startSerialMonitor();
     } else {
       log('Your T-Deck is rebooting. It should boot into SigurdOS momentarily.', 'green');
       flashBtn.textContent = 'Flash Complete ✓';
@@ -444,35 +457,26 @@ async function startSerialMonitor() {
   captureStartTime = Date.now();
 
   showCaptureUI(true);
-  logCapture('Waiting for device to reconnect after reboot...\n', 'dim');
+  logCapture('✓ Debug firmware flashed!\n', 'green');
+  logCapture('Tap the **RESET button** on your T-Deck to boot the new firmware.\n', 'green');
+  logCapture('Then click **Connect T-Deck** above to start monitoring serial output.\n', 'dim');
+}
 
-  // Wait for device to finish rebooting into new firmware
-  await sleep(4000);
-
-  // Acquire the reconnected serial port
-  logCapture('Trying to acquire serial port...\n', 'dim');
-  try {
-    serialPort = await acquireSerial();
-  } catch (e) {
-    logCapture(`[error] Could not auto-acquire port: ${e.message}\n`, 'red');
-    logCapture('Click "Connect T-Deck" above to connect for monitoring.\n', 'orange');
-    captureRunning = false;
+async function beginCaptureRead() {
+  if (!serialPort || !serialPort.readable) {
+    logCapture('[error] No serial port connected.\n', 'red');
     return;
   }
 
-  logCapture('Listening...\n', 'green');
+  captureRunning = true;
+  captureStartTime = Date.now();
 
   // Start timer
   captureTimerInterval = setInterval(updateCaptureStats, 1000);
 
-  // Get ONE reader for the entire capture session
-  try {
-    if (!serialPort.readable) {
-      logCapture('[error] Serial port has no readable stream.\n', 'red');
-      captureRunning = false;
-      return;
-    }
+  logCapture('Listening...\n', 'green');
 
+  try {
     const reader = serialPort.readable.getReader();
     try {
       while (captureRunning) {
@@ -491,7 +495,7 @@ async function startSerialMonitor() {
     }
   }
 
-  logCapture('\nSerial monitor stopped.', 'orange');
+  logCapture('\nSerial stream ended.', 'orange');
   if (captureTimerInterval) {
     clearInterval(captureTimerInterval);
     captureTimerInterval = null;
