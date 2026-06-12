@@ -458,36 +458,32 @@ async function startSerialMonitor() {
   logCapture('Serial monitor started. Waiting for device to reboot...\n', 'dim');
 
   // Wait for device to reboot from flash
-  await sleep(2000);
-
-  // Flush any stale data
-  try {
-    if (serialPort.readable) {
-      const flushReader = serialPort.readable.getReader();
-      await sleep(500);
-      flushReader.cancel();
-    }
-  } catch (_) {}
+  await sleep(3000);
 
   logCapture('Listening...\n', 'green');
 
   // Start timer
   captureTimerInterval = setInterval(updateCaptureStats, 1000);
 
+  // Get ONE reader for the entire capture session
   try {
-    while (captureRunning && serialPort.readable) {
-      const reader = serialPort.readable.getReader();
-      try {
-        while (captureRunning) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          const text = new TextDecoder().decode(value);
-          captureBuffer += text;
-          logCapture(text);
-        }
-      } finally {
-        reader.releaseLock();
+    if (!serialPort.readable) {
+      logCapture('[error] Serial port has no readable stream. Is it open?\n', 'red');
+      captureRunning = false;
+      return;
+    }
+
+    const reader = serialPort.readable.getReader();
+    try {
+      while (captureRunning) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const text = new TextDecoder().decode(value);
+        captureBuffer += text;
+        logCapture(text);
       }
+    } finally {
+      try { reader.releaseLock(); } catch (_) {}
     }
   } catch (err) {
     if (captureRunning) {
