@@ -325,27 +325,9 @@ async function flashFirmware() {
     if (channel === 'debug') {
       log('Debug firmware flashed! Starting serial monitor...', 'green');
       flashBtn.textContent = 'Monitor Active';
-      // ── FIX: Properly release the WebSerial readable stream lock ──
-      // esptool-js's Transport.disconnect() calls reader.cancel() which can
-      // hang indefinitely when the stream enters an errored/post-flash state,
-      // and never calls reader.releaseLock(). This leaves the readable stream
-      // permanently locked, preventing startSerialMonitor() from attaching
-      // its own reader.
-      //
-      // Our fix: release the reader lock FIRST (synchronous, always succeeds),
-      // THEN call disconnect to close the port properly.
+      // Clean up esptool-js transport and discard the old port
       try {
         if (transport) {
-          // Step 1: Force-release the reader lock immediately.
-          // This is synchronous and always succeeds, unblocking the stream
-          // even if cancel() would hang. Any pending read() promises will
-          // reject harmlessly — esptool-js's readLoop catches them.
-          if (transport.reader) {
-            try { transport.reader.releaseLock(); } catch (_) {}
-          }
-          // Step 2: Disconnect the transport. Now that the stream is
-          // unlocked, disconnect() will skip the cancel (readable.locked
-          // is false) and proceed to close the port directly.
           if (typeof transport.disconnect === 'function') {
             await transport.disconnect().catch(() => {});
           } else if (typeof transport.close === 'function') {
@@ -353,15 +335,8 @@ async function flashFirmware() {
           }
         }
       } catch (_) {}
-      // Small delay for device to boot into new firmware
-      await sleep(3000);
-      // Reopen port for monitoring
-      try {
-        await serialPort.open({ baudRate: 115200 });
-      } catch (e) {
-        log(`Failed to reopen serial: ${e.message}`, 'red');
-      }
-      startSerialMonitor();
+      serialPort = null; // Port is stale after reset — discard it
+      startSerialMonitor(); // Will acquire fresh connection via getPorts()
     } else {
       log('Your T-Deck is rebooting. It should boot into SigurdOS momentarily.', 'green');
       flashBtn.textContent = 'Flash Complete ✓';
@@ -444,21 +419,40 @@ async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function startSerialMonitor() {
-  if (!serialPort) {
-    log('No serial port connected.', 'red');
-    return;
-  }
+async function acquireSerial() {
+  // Try to get a previously-authorized port without prompting the user
+  const ports = await navigator.serial.getPorts();
+  // Prefer an Espressif port (USB VID 0x303a), otherwise take the first one
+  const target = ports.find(p => {
+    const info = p.getInfo();
+    return info.usbVendorId === 0x303a;
+  }) || ports[0];
+  if (!target) throw new Error('No previously-authorized serial port found');
+  await target.open({ baudRate: 115200 });
+  return target;
+}
 
+async function startSerialMonitor() {
   captureRunning = true;
   captureBuffer = '';
   captureStartTime = Date.now();
 
   showCaptureUI(true);
-  logCapture('Serial monitor started. Waiting for device to reboot...\n', 'dim');
+  logCapture('Waiting for device to reconnect after reboot...\n', 'dim');
 
-  // Wait for device to reboot from flash
-  await sleep(3000);
+  // Wait for device to finish rebooting into new firmware
+  await sleep(4000);
+
+  // Acquire the reconnected serial port
+  logCapture('Trying to acquire serial port...\n', 'dim');
+  try {
+    serialPort = await acquireSerial();
+  } catch (e) {
+    logCapture(`[error] Could not auto-acquire port: ${e.message}\n`, 'red');
+    logCapture('Click "Connect T-Deck" above to connect for monitoring.\n', 'orange');
+    captureRunning = false;
+    return;
+  }
 
   logCapture('Listening...\n', 'green');
 
@@ -468,7 +462,7 @@ async function startSerialMonitor() {
   // Get ONE reader for the entire capture session
   try {
     if (!serialPort.readable) {
-      logCapture('[error] Serial port has no readable stream. Is it open?\n', 'red');
+      logCapture('[error] Serial port has no readable stream.\n', 'red');
       captureRunning = false;
       return;
     }
