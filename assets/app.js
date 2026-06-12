@@ -325,10 +325,32 @@ async function flashFirmware() {
     if (channel === 'debug') {
       log('Debug firmware flashed! Starting serial monitor...', 'green');
       flashBtn.textContent = 'Monitor Active';
-      // Close esptool-js transport to release the serial stream lock
+      // ── FIX: Properly release the WebSerial readable stream lock ──
+      // esptool-js's Transport.disconnect() calls reader.cancel() which can
+      // hang indefinitely when the stream enters an errored/post-flash state,
+      // and never calls reader.releaseLock(). This leaves the readable stream
+      // permanently locked, preventing startSerialMonitor() from attaching
+      // its own reader.
+      //
+      // Our fix: release the reader lock FIRST (synchronous, always succeeds),
+      // THEN call disconnect to close the port properly.
       try {
-        if (transport && typeof transport.close === 'function') {
-          await transport.close();
+        if (transport) {
+          // Step 1: Force-release the reader lock immediately.
+          // This is synchronous and always succeeds, unblocking the stream
+          // even if cancel() would hang. Any pending read() promises will
+          // reject harmlessly — esptool-js's readLoop catches them.
+          if (transport.reader) {
+            try { transport.reader.releaseLock(); } catch (_) {}
+          }
+          // Step 2: Disconnect the transport. Now that the stream is
+          // unlocked, disconnect() will skip the cancel (readable.locked
+          // is false) and proceed to close the port directly.
+          if (typeof transport.disconnect === 'function') {
+            await transport.disconnect().catch(() => {});
+          } else if (typeof transport.close === 'function') {
+            await transport.close().catch(() => {});
+          }
         }
       } catch (_) {}
       // Small delay for device to boot into new firmware
