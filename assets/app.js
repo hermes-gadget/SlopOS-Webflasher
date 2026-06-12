@@ -252,7 +252,7 @@ async function flashFirmware() {
 
     setProgress(15, 'Loading esptool-js');
     log('Loading browser flasher library...');
-    const { ESPLoader, Transport, HardReset } = await loadEspTool();
+    const { ESPLoader, Transport, HardReset, UsbJtagSerialReset } = await loadEspTool();
     log('esptool-js loaded.', 'green');
 
     setProgress(20, 'Connecting to bootloader');
@@ -268,7 +268,13 @@ async function flashFirmware() {
       terminal: createFlashTerminal(),
       debugLogging: false,
     });
-    loader.hr = new HardReset(transport);
+    // T-Deck uses native USB-Serial-JTAG — HardReset (DTR/RTS) doesn't work.
+    // UsbJtagSerialReset toggles the USB D+ line to trigger a hardware reset.
+    try {
+      loader.hr = new UsbJtagSerialReset(transport);
+    } catch (_) {
+      loader.hr = new HardReset(transport);
+    }
 
     const chipInfo = await withTimeout(
       loader.main(),
