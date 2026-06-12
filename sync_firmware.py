@@ -30,6 +30,7 @@ USER_AGENT = "SigurdOS-FirmwareSync/1.0"
 # Files we care about (sorted by preference)
 ASSET_PATTERNS = [
     re.compile(r"^firmware-merged\.bin$"),
+    re.compile(r"^firmware-debug\.bin$"),
     re.compile(r"^firmware\.bin$"),
     re.compile(r"^manifest\.json$"),
     re.compile(r"^sigurdos-tdeck-(.+)\.(bin|json)$"),

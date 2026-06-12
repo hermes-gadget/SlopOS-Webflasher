@@ -9,7 +9,7 @@ const API_BASE = '/api';
 const RELEASES_CACHE_KEY = 'sigurdos-releases-cache';
 const RELEASES_CACHE_TTL = 5 * 60 * 1000; // 5 min
 
-let selectedChannel = null;   // 'stable' | 'beta'
+let selectedChannel = null;   // 'stable' | 'beta' | 'debug'
 let releaseData = null;       // { stable: {...}, beta: {...} }
 let serialPort = null;
 let esptoolPromise = null;
@@ -21,6 +21,7 @@ const connectBtn = document.getElementById('btn-connect');
 const flashBtn = document.getElementById('btn-flash');
 const stableCard = document.getElementById('channel-stable');
 const betaCard = document.getElementById('channel-beta');
+const debugCard = document.getElementById('channel-debug');
 const stableVersion = document.getElementById('stable-version');
 const betaVersion = document.getElementById('beta-version');
 const consoleEl = document.getElementById('console');
@@ -133,9 +134,12 @@ function updateChannelLabels() {
 }
 
 function getFirmwareUrl(channel, filename) {
-  // Local firmware URL: /api/firmware/<dev|lates>/<filename>
+  // Local firmware URL: /api/firmware/<dev|latest|debug>/<filename>
   // dev -> latest prerelease, latest -> latest stable (or dev if no stable)
-  const channelPath = channel === 'stable' ? 'latest' : 'dev';
+  // debug -> debug build (firmware-debug.bin)
+  const channelPath = channel === 'stable' ? 'latest'
+                    : channel === 'debug' ? 'debug'
+                    : 'dev';
   return `${API_BASE}/firmware/${channelPath}/${filename}`;
 }
 
@@ -193,6 +197,8 @@ async function connectSerial() {
     setStepStatus(stepConnect, 'success', 'Connected');
     connectBtn.textContent = 'Disconnect';
     enableBtn(connectBtn, true);
+    // Show Read Log button for debug reconnect scenarios
+    document.getElementById('read-log-group').style.display = 'flex';
     log('Serial port ready for flashing.', 'green');
   } catch (err) {
     setStepStatus(stepConnect, 'error', 'Failed');
@@ -214,6 +220,8 @@ async function disconnectSerial() {
   setStepStatus(stepConnect, 'ready', 'Not connected');
   connectBtn.textContent = 'Connect T-Deck';
   enableBtn(connectBtn, true);
+  // Hide Read Log button
+  document.getElementById('read-log-group').style.display = 'none';
   log('Serial disconnected.', 'dim');
 }
 
@@ -239,7 +247,7 @@ async function flashFirmware() {
   const channel = selectedChannel;
 
   // Build download URL from local firmware vault
-  const firmwareUrl = getFirmwareUrl(channel, 'firmware-merged.bin');
+  const firmwareUrl = getFirmwareUrl(channel, channel === 'debug' ? 'firmware-debug.bin' : 'firmware-merged.bin');
 
   try {
     setProgress(5, 'Downloading firmware');
@@ -317,9 +325,17 @@ async function flashFirmware() {
     setProgress(100, 'Done!');
     setStepStatus(stepFlash, 'success', 'Flashed!');
     log(`✓ ${tagName} flashed successfully!`, 'green');
-    log('Your T-Deck is rebooting. It should boot into SigurdOS momentarily.', 'green');
-    flashBtn.textContent = 'Flash Complete ✓';
-    serialPort = null;
+
+    if (channel === 'debug') {
+      log('Debug firmware flashed! Starting serial monitor...', 'green');
+      flashBtn.textContent = 'Monitor Active';
+      // Keep serial port open and start monitoring
+      startSerialMonitor();
+    } else {
+      log('Your T-Deck is rebooting. It should boot into SigurdOS momentarily.', 'green');
+      flashBtn.textContent = 'Flash Complete ✓';
+      serialPort = null;
+    }
   } catch (err) {
     setProgress(0, 'Error');
     setStepStatus(stepFlash, 'error', 'Failed');
@@ -352,6 +368,242 @@ function createFlashTerminal() {
   };
 }
 
+// ── Serial Monitor (debug channel) ─────────
+let captureRunning = false;
+let captureBuffer = '';
+let captureStartTime = 0;
+let captureTimerInterval = null;
+
+function showCaptureUI(show) {
+  const el = document.getElementById('step-capture');
+  if (show) {
+    el.style.display = 'block';
+    el.scrollIntoView({ behavior: 'smooth' });
+    // Hide flash step status
+    setStepStatus(stepFlash, 'success', 'Flashed!');
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function logCapture(text, cls = '') {
+  const el = document.getElementById('capture-log');
+  const line = `<span class="${cls}">${escapeHtml(text)}</span>\n`;
+  el.innerHTML += line;
+  const console = document.getElementById('capture-console');
+  console.scrollTop = console.scrollHeight;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function updateCaptureStats() {
+  const elapsed = Math.floor((Date.now() - captureStartTime) / 1000);
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  document.getElementById('capture-timer').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+  const kb = (captureBuffer.length / 1024).toFixed(1);
+  document.getElementById('capture-bytes').textContent = `${kb} KB`;
+}
+
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function startSerialMonitor() {
+  if (!serialPort) {
+    log('No serial port connected.', 'red');
+    return;
+  }
+
+  captureRunning = true;
+  captureBuffer = '';
+  captureStartTime = Date.now();
+
+  showCaptureUI(true);
+  logCapture('Serial monitor started. Waiting for device to reboot...\n', 'dim');
+
+  // Wait for device to reboot from flash
+  await sleep(2000);
+
+  // Flush any stale data
+  try {
+    if (serialPort.readable) {
+      const flushReader = serialPort.readable.getReader();
+      await sleep(500);
+      flushReader.cancel();
+    }
+  } catch (_) {}
+
+  logCapture('Listening...\n', 'green');
+
+  // Start timer
+  captureTimerInterval = setInterval(updateCaptureStats, 1000);
+
+  try {
+    while (captureRunning && serialPort.readable) {
+      const reader = serialPort.readable.getReader();
+      try {
+        while (captureRunning) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          const text = new TextDecoder().decode(value);
+          captureBuffer += text;
+          logCapture(text);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+  } catch (err) {
+    if (captureRunning) {
+      logCapture(`\n[error] ${err.message}`, 'red');
+    }
+  }
+
+  logCapture('\nSerial monitor stopped.', 'orange');
+  if (captureTimerInterval) {
+    clearInterval(captureTimerInterval);
+    captureTimerInterval = null;
+  }
+}
+
+function stopCapture() {
+  captureRunning = false;
+  if (captureTimerInterval) {
+    clearInterval(captureTimerInterval);
+    captureTimerInterval = null;
+  }
+  setStepStatus(
+    document.getElementById('step-capture'),
+    'ready',
+    'Stopped'
+  );
+  document.getElementById('capture-status').innerHTML = 'Stopped';
+
+  // Disconnect serial port
+  disconnectSerial();
+}
+
+function clearCapture() {
+  document.getElementById('capture-log').innerHTML = '';
+  captureBuffer = '';
+  captureStartTime = Date.now();
+}
+
+function generateDebugReport(buffer, description, deviceInfo, duration) {
+  const lines = [
+    '╔══════════════════════════════════════════════╗',
+    '║        SIGURDOS DEBUG REPORT                  ║',
+    '╚══════════════════════════════════════════════╝',
+    '',
+    `Generated:    ${new Date().toISOString()}`,
+    `Firmware:     SigurdOS-TDeck (debug build)`,
+    `Captured:     ${duration}`,
+    `Chip:         ${deviceInfo.chip || 'ESP32-S3'}`,
+    `Flash:        ${deviceInfo.flash || '?'}`,
+    '',
+    '═══ USER DESCRIPTION ═══',
+    description || '(none provided)',
+    '',
+    '═══ SERIAL OUTPUT ═══',
+    buffer,
+    '',
+    '═══ END OF REPORT ═══',
+    '',
+    'Privacy: This report contains device diagnostics only.',
+    'No GPS coordinates, message content, or personal data.',
+    'Review before sharing.',
+    ''
+  ];
+  return lines.join('\n');
+}
+
+function downloadDebugLog() {
+  const description = document.getElementById('capture-description-input').value || '';
+  const elapsed = Math.floor((Date.now() - captureStartTime) / 1000);
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  const duration = `${mins}:${secs.toString().padStart(2, '0')}`;
+
+  const deviceInfo = {
+    chip: document.getElementById('chip-name')?.textContent || 'ESP32-S3',
+    flash: document.getElementById('chip-flash')?.textContent || '?'
+  };
+
+  const report = generateDebugReport(captureBuffer, description, deviceInfo, duration);
+  const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sigurdos-debug-${new Date().toISOString().slice(0, 10)}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  logCapture('\n📄 Debug report downloaded.', 'green');
+}
+
+// ── Read Log (reconnect scenario) ──────────
+async function readDebugLog() {
+  if (!serialPort) {
+    log('Connect a T-Deck first!', 'red');
+    return;
+  }
+
+  captureRunning = true;
+  captureBuffer = '';
+  captureStartTime = Date.now();
+
+  showCaptureUI(true);
+  logCapture('Reading serial output for 5 seconds...\n', 'dim');
+
+  captureTimerInterval = setInterval(updateCaptureStats, 1000);
+
+  // Read for 5 seconds
+  const readPromise = (async () => {
+    try {
+      while (captureRunning && serialPort.readable) {
+        const reader = serialPort.readable.getReader();
+        try {
+          while (captureRunning) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            const text = new TextDecoder().decode(value);
+            captureBuffer += text;
+            logCapture(text);
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      }
+    } catch (err) {
+      if (captureRunning) logCapture(`\n[error] ${err.message}`, 'red');
+    }
+  })();
+
+  // Auto-stop after 5 seconds
+  await sleep(5000);
+  captureRunning = false;
+  await sleep(100); // Let reader finish
+
+  if (captureTimerInterval) {
+    clearInterval(captureTimerInterval);
+    captureTimerInterval = null;
+  }
+
+  logCapture('\nCapture complete. Download the log above.', 'green');
+  document.getElementById('capture-status').innerHTML = '<span class="rec-dot"></span> Done';
+  setStepStatus(
+    document.getElementById('step-capture'),
+    'success',
+    'Captured'
+  );
+}
+
 // ── Channel selection ─────────────────────
 function selectChannel(channel) {
   // Don't allow selecting stable if no stable release
@@ -362,11 +614,14 @@ function selectChannel(channel) {
   selectedChannel = channel;
   stableCard.classList.toggle('channel-card--selected', channel === 'stable');
   betaCard.classList.toggle('channel-card--selected', channel === 'beta');
+  debugCard.classList.toggle('channel-card--selected', channel === 'debug');
   setStepStatus(stepChannel, 'success', 'Selected');
   enableBtn(flashBtn, !!(serialPort && releaseData));
-  const label = channel === 'stable' ? 'Stable' : 'Beta';
+  const label = channel === 'stable' ? 'Stable'
+              : channel === 'debug' ? 'Debug'
+              : 'Beta';
   flashBtn.textContent = `Flash ${label} Firmware`;
-  log(`Selected ${label} channel: ${releaseData?.[channel]?.tag_name || 'latest'}`, 'green');
+  log(`Selected ${label} channel: ${releaseData?.[channel]?.tag_name || channel}`, 'green');
 }
 
 // ── Init ──────────────────────────────────
@@ -397,8 +652,17 @@ connectBtn.addEventListener('click', connectSerial);
 
 stableCard.addEventListener('click', () => { if (releaseData?.stable) selectChannel('stable'); });
 betaCard.addEventListener('click', () => selectChannel('beta'));
+debugCard.addEventListener('click', () => selectChannel('debug'));
 
 flashBtn.addEventListener('click', flashFirmware);
+
+// Capture controls
+document.getElementById('btn-download-log')?.addEventListener('click', downloadDebugLog);
+document.getElementById('btn-clear-capture')?.addEventListener('click', clearCapture);
+document.getElementById('btn-stop-capture')?.addEventListener('click', stopCapture);
+
+// Read Log (reconnect scenario)
+document.getElementById('btn-read-log')?.addEventListener('click', readDebugLog);
 
 if (eraseToggle) {
   eraseToggle.addEventListener('change', () => {

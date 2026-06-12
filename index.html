@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Pixelify+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/styles.css?v=20260608d">
+  <link rel="stylesheet" href="assets/styles.css?v=20260608e">
 </head>
 <body>
 
@@ -63,6 +63,9 @@
             <div class="flash-actions">
               <button class="btn" id="btn-connect" type="button">Connect T-Deck</button>
             </div>
+            <div class="read-log-group" id="read-log-group" style="display:none;">
+              <button class="btn btn--outline" id="btn-read-log" type="button">📋 Read Debug Log</button>
+            </div>
           </div>
         </div>
 
@@ -89,6 +92,13 @@
                 <div class="channel-card__name">Beta Release</div>
                 <div class="channel-card__desc">Cutting-edge features from active development.</div>
                 <div class="channel-card__version" id="beta-version">Loading...</div>
+              </div>
+
+              <div class="channel-card" id="channel-debug">
+                <div class="channel-card__badge channel-card__badge--debug">Debug</div>
+                <div class="channel-card__name">Debug Build</div>
+                <div class="channel-card__desc">Verbose logging with crash capture. For troubleshooting and bug reports.</div>
+                <div class="channel-card__version" id="debug-version">Debug</div>
               </div>
 
             </div>
@@ -148,6 +158,49 @@
           </div>
         </div>
 
+        <!-- Step 4: Monitor (debug only) -->
+        <div class="step" id="step-capture" style="display:none;">
+          <div class="step__header">
+            <div class="step__num">Mon</div>
+            <div class="step__title">Monitor Device</div>
+            <span class="step__status step__status--busy" id="capture-status">
+              <span class="rec-dot"></span> REC
+            </span>
+          </div>
+          <div class="step__body">
+            <p class="capture-hint">
+              Debug firmware running. Use your T-Deck normally — all serial output is being captured.
+              If the device crashes, the backtrace will appear here automatically.
+            </p>
+
+            <div class="capture-console" id="capture-console">
+              <div class="capture-console__inner" id="capture-log"></div>
+              <div class="capture-console__bar">
+                <span class="rec-dot"></span> Capturing...
+                <span id="capture-timer">0:00</span>
+                <span id="capture-bytes">0 KB</span>
+              </div>
+            </div>
+
+            <div class="capture-description">
+              <label for="capture-description-input">What were you doing? (optional):</label>
+              <textarea id="capture-description-input" rows="2"
+                placeholder="e.g. I sent a message and the screen froze..."></textarea>
+            </div>
+
+            <div class="capture-actions">
+              <button class="btn btn--outline" id="btn-clear-capture">Clear</button>
+              <button class="btn" id="btn-download-log">📥 Download Debug Log</button>
+              <button class="btn btn--outline" id="btn-stop-capture">Stop &amp; Disconnect</button>
+            </div>
+
+            <div class="privacy-notice">
+              <strong>🔒 Privacy:</strong> This report contains device diagnostics only — no GPS,
+              message content, or personal data. Review before sharing.
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -190,6 +243,22 @@
             </a>
           </div>
         </div>
+        <div class="fd-channel fd-channel--debug">
+          <div class="fd-channel__header">
+            <span class="fd-badge fd-badge--debug">Debug</span>
+            <span class="fd-version" id="debug-version-dl">Debug</span>
+          </div>
+          <div class="fd-channel__buttons">
+            <a href="/debug/firmware-debug.bin" class="fd-btn fd-btn--debug" download>
+              <span class="fd-btn__label">firmware-debug.bin</span>
+              <span class="fd-btn__hint">Debug build with crash capture</span>
+            </a>
+            <a href="/debug/firmware.bin" class="fd-btn fd-btn--debug" download>
+              <span class="fd-btn__label">firmware.bin</span>
+              <span class="fd-btn__hint">App update only</span>
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -225,7 +294,7 @@
     </div>
   </footer>
 
-  <script type="module" src="assets/app.js?v=20260608d"></script>
+  <script type="module" src="assets/app.js?v=20260609a"></script>
 
   <!-- Show current version in download section -->
   <script>

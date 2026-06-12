@@ -253,6 +253,8 @@ h1, h2, h3, .font-pixel {
 }
 .channel-card__badge--stable { border-color: var(--accent-green); color: var(--accent-green); }
 .channel-card__badge--beta { border-color: var(--accent-orange); color: var(--accent-orange); }
+.channel-card__badge--debug { border-color: #FF4444; color: #FF4444; }
+.channel-card--debug-selected { border-color: #FF4444; background: rgba(255,68,68,0.04); }
 
 /* ── Buttons ────────────────────────────── */
 .btn {
@@ -558,6 +560,10 @@ h1, h2, h3, .font-pixel {
   border-color: var(--accent-green);
   color: var(--accent-green);
 }
+.fd-badge--debug {
+  border-color: #FF4444;
+  color: #FF4444;
+}
 .fd-version {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -587,6 +593,12 @@ h1, h2, h3, .font-pixel {
 }
 .fd-btn--beta:hover {
   border-color: var(--accent-orange);
+}
+.fd-btn--debug {
+  border-color: #333;
+}
+.fd-btn--debug:hover {
+  border-color: #FF4444;
 }
 .fd-btn--disabled {
   opacity: 0.35;
@@ -636,6 +648,94 @@ h1, h2, h3, .font-pixel {
   50% { opacity: 0.5; }
 }
 .step--busy .step__status { animation: pulse 1.5s ease-in-out infinite; }
+
+/* ── Capture Console ─────────────────────── */
+.capture-hint {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+.capture-console {
+  background: #050505;
+  border: var(--border-w) solid var(--divider);
+  margin-bottom: 16px;
+}
+.capture-console__inner {
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--accent-green);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.capture-console__inner .dim { color: #444; }
+.capture-console__inner .green { color: var(--accent-green); }
+.capture-console__inner .red { color: var(--accent-red); }
+.capture-console__inner .orange { color: var(--accent-orange); }
+.capture-console__bar {
+  padding: 8px 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  border-top: var(--border-w) solid var(--divider);
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.rec-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--accent-red);
+  border-radius: 0;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+.capture-description {
+  margin-bottom: 16px;
+}
+.capture-description label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.capture-description textarea {
+  width: 100%;
+  background: var(--bg-secondary);
+  border: var(--border-w) solid var(--divider);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 10px;
+  resize: vertical;
+}
+.capture-description textarea:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.capture-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.privacy-notice {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 12px;
+  border: var(--border-w) solid var(--divider);
+  background: var(--bg-secondary);
+}
+
+/* ── Read Log button ─────────────────────── */
+.read-log-group {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
 
 @keyframes glitch {
   0%, 90%, 100% { transform: translate(0); }

@@ -257,8 +257,9 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
         # ── Direct download endpoints ────────────────────
         # /latest/firmware-merged.bin  → vault/latest/... through symlinks
         # /dev/firmware-merged.bin     → vault/dev/...
+        # /debug/firmware-debug.bin     → vault/debug/...
         # /archive/beta/beta-0.1.40/firmware-merged.bin
-        for prefix in ("/latest/", "/dev/", "/archive/"):
+        for prefix in ("/latest/", "/dev/", "/debug/", "/archive/"):
             if path.startswith(prefix):
                 relative = path[len(prefix):].strip("/")
                 if not relative:
@@ -269,6 +270,8 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
                     vault_rel = os.path.join("latest", relative)
                 elif prefix == "/dev/":
                     vault_rel = os.path.join("dev", relative)
+                elif prefix == "/debug/":
+                    vault_rel = os.path.join("debug", relative)
                 else:  # /archive/
                     vault_rel = os.path.join("archive", relative)
                 self.serve_firmware(vault_rel, as_download=True)
