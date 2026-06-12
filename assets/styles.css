@@ -694,13 +694,16 @@ h1, h2, h3, .font-pixel {
   animation: pulse 1.5s ease-in-out infinite;
 }
 .capture-description {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 16px;
 }
 .capture-description label {
-  display: block;
   font-size: 13px;
   color: var(--text-secondary);
-  margin-bottom: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .capture-description textarea {
   width: 100%;
