@@ -100,8 +100,8 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
     # CSP for the main app
     CSP_PAGE = (
         "default-src 'self';"
-        " connect-src 'self';"  # No more GitHub API calls!
-        " style-src 'self' https://fonts.googleapis.com;"
+        " connect-src 'self';"
+        " style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;"
         " font-src 'self' https://fonts.gstatic.com;"
         " script-src 'self' 'unsafe-inline';"
         " img-src 'self' data:;"
