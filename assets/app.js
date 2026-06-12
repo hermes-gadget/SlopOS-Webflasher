@@ -41,6 +41,10 @@ const stepChannel = document.getElementById('step-channel');
 const stepFlash = document.getElementById('step-flash');
 const eraseToggle = document.getElementById('erase-all');
 
+// ── Capture UI refs ─────────────────────────
+const startMonitorBtn = document.getElementById('btn-start-monitor');
+const captureStatus = document.getElementById('capture-status');
+
 // ── Helpers ──────────────────────────────
 function log(msg, cls = '') {
   const t = new Date().toLocaleTimeString();
@@ -197,18 +201,6 @@ async function connectSerial() {
     setStepStatus(stepConnect, 'success', 'Connected');
     connectBtn.textContent = 'Disconnect';
     enableBtn(connectBtn, true);
-
-    // If capture mode is active (debug flash just finished), start monitoring immediately
-    if (captureRunning) {
-      try {
-        await serialPort.open({ baudRate: 115200 });
-      } catch (e) {
-        log(`Failed to open serial: ${e.message}`, 'red');
-      }
-      log('Starting serial monitor...', 'green');
-      beginCaptureRead();
-      return;
-    }
 
     log('Serial port ready for flashing.', 'green');
   } catch (err) {
@@ -441,8 +433,58 @@ async function sleep(ms) {
 async function startSerialMonitor() {
   showCaptureUI(true);
   logCapture('✓ Debug firmware flashed!\n', 'green');
-  logCapture('Tap the **RESET button** on your T-Deck to boot the new firmware.\n', 'green');
-  logCapture('Then click **Connect T-Deck** above to start monitoring serial output.\n', 'dim');
+  logCapture('1. Tap the **RESET button** on your T-Deck to boot the new firmware.\n', 'green');
+  logCapture('2. Then click the **🔌 Start Monitor** button below to connect.\n', 'green');
+  setMonitorButtonState(false);
+  document.getElementById('btn-stop-capture').style.display = 'none';
+  captureStatus.innerHTML = 'Ready';
+}
+
+function setMonitorButtonState(monitoring) {
+  if (monitoring) {
+    startMonitorBtn.textContent = '⏳ Monitoring...';
+    startMonitorBtn.disabled = true;
+  } else {
+    startMonitorBtn.textContent = '🔌 Start Monitor';
+    startMonitorBtn.disabled = false;
+  }
+}
+
+async function startMonitorConnect() {
+  if (captureRunning) return;
+
+  try {
+    logCapture('Requesting serial port... Please select your T-Deck.\n', 'dim');
+
+    const filters = [
+      { usbVendorId: 0x303a }, // Espressif
+      { usbVendorId: 0x1a86 }, // CH340/CH341
+      { usbVendorId: 0x10c4 }, // CP210x
+    ];
+    serialPort = await navigator.serial.requestPort({ filters });
+
+    const info = serialPort.getInfo ? serialPort.getInfo() : {};
+    const usbVid = info.usbVendorId?.toString(16) || '?';
+    const usbPid = info.usbProductId?.toString(16) || '?';
+    logCapture(`Port selected: USB VID=${usbVid} PID=${usbPid}\n`, 'dim');
+
+    await serialPort.open({ baudRate: 115200 });
+    logCapture('Port opened at 115200 baud. Listening...\n', 'green');
+
+    // Update UI
+    document.getElementById('btn-stop-capture').style.display = 'inline-block';
+    captureStatus.innerHTML = '<span class="rec-dot"></span> REC';
+    setMonitorButtonState(true);
+
+    // Start reading
+    await beginCaptureRead();
+  } catch (err) {
+    logCapture(`[error] ${err.message}\n`, 'red');
+    serialPort = null;
+    setMonitorButtonState(false);
+    document.getElementById('btn-stop-capture').style.display = 'none';
+    captureStatus.innerHTML = 'Error';
+  }
 }
 
 async function beginCaptureRead() {
@@ -483,6 +525,11 @@ async function beginCaptureRead() {
     clearInterval(captureTimerInterval);
     captureTimerInterval = null;
   }
+
+  // Reset UI state for reconnection
+  setMonitorButtonState(false);
+  document.getElementById('btn-stop-capture').style.display = 'none';
+  captureStatus.innerHTML = 'Disconnected';
 }
 
 function stopCapture() {
@@ -496,7 +543,11 @@ function stopCapture() {
     'ready',
     'Stopped'
   );
-  document.getElementById('capture-status').innerHTML = 'Stopped';
+  captureStatus.innerHTML = 'Stopped';
+
+  // Re-enable Start Monitor button, hide Stop button
+  setMonitorButtonState(false);
+  document.getElementById('btn-stop-capture').style.display = 'none';
 
   // Disconnect serial port
   disconnectSerial();
@@ -614,6 +665,7 @@ debugCard.addEventListener('click', () => selectChannel('debug'));
 flashBtn.addEventListener('click', flashFirmware);
 
 // Capture controls
+startMonitorBtn.addEventListener('click', startMonitorConnect);
 document.getElementById('btn-download-log')?.addEventListener('click', downloadDebugLog);
 document.getElementById('btn-clear-capture')?.addEventListener('click', clearCapture);
 document.getElementById('btn-stop-capture')?.addEventListener('click', stopCapture);
