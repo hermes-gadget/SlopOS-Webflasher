@@ -325,7 +325,20 @@ async function flashFirmware() {
     if (channel === 'debug') {
       log('Debug firmware flashed! Starting serial monitor...', 'green');
       flashBtn.textContent = 'Monitor Active';
-      // Keep serial port open and start monitoring
+      // Close esptool-js transport to release the serial stream lock
+      try {
+        if (transport && typeof transport.close === 'function') {
+          await transport.close();
+        }
+      } catch (_) {}
+      // Small delay for device to boot into new firmware
+      await sleep(3000);
+      // Reopen port for monitoring
+      try {
+        await serialPort.open({ baudRate: 115200 });
+      } catch (e) {
+        log(`Failed to reopen serial: ${e.message}`, 'red');
+      }
       startSerialMonitor();
     } else {
       log('Your T-Deck is rebooting. It should boot into SigurdOS momentarily.', 'green');
