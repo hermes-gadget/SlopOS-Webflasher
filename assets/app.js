@@ -438,24 +438,7 @@ async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function acquireSerial() {
-  // Try to get a previously-authorized port without prompting the user
-  const ports = await navigator.serial.getPorts();
-  // Prefer an Espressif port (USB VID 0x303a), otherwise take the first one
-  const target = ports.find(p => {
-    const info = p.getInfo();
-    return info.usbVendorId === 0x303a;
-  }) || ports[0];
-  if (!target) throw new Error('No previously-authorized serial port found');
-  await target.open({ baudRate: 115200 });
-  return target;
-}
-
 async function startSerialMonitor() {
-  captureRunning = true;
-  captureBuffer = '';
-  captureStartTime = Date.now();
-
   showCaptureUI(true);
   logCapture('✓ Debug firmware flashed!\n', 'green');
   logCapture('Tap the **RESET button** on your T-Deck to boot the new firmware.\n', 'green');
