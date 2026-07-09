@@ -247,8 +247,19 @@ async function flashFirmware() {
 
   const channel = selectedChannel;
 
-  // Build download URL from local firmware vault
-  const firmwareUrl = getFirmwareUrl(channel, channel === 'debug' ? 'firmware-debug.bin' : 'firmware-merged.bin');
+  // Choose binary and flash address based on erase mode
+  // Full Erase: merged binary at 0x0 (bootloader + partitions + app)
+  // Update Only: app-only binary at 0x10000 (preserves bootloader, partition table, and NVS)
+  let filename;
+  let flashAddress;
+  if (eraseAll) {
+    filename = channel === 'debug' ? 'firmware-debug.bin' : 'firmware-merged.bin';
+    flashAddress = 0;
+  } else {
+    filename = 'firmware.bin';
+    flashAddress = 0x10000;
+  }
+  const firmwareUrl = getFirmwareUrl(channel, filename);
 
   try {
     setProgress(5, 'Downloading firmware');
@@ -304,11 +315,12 @@ async function flashFirmware() {
 
     const tagName = releaseData?.[channel]?.tag_name || channel;
     const modeLabel = eraseAll ? 'Full Erase' : 'Update Only';
-    setProgress(30, `${modeLabel}: writing firmware`);
-    log(`Flashing ${tagName} (${channel} channel, ${modeLabel})...`);
+    const addressLabel = eraseAll ? '0x0' : '0x10000';
+    setProgress(30, `${modeLabel}: writing firmware at ${addressLabel}`);
+    log(`Flashing ${tagName} (${channel} channel, ${modeLabel}, address ${addressLabel})...`);
 
     await loader.writeFlash({
-      fileArray: [{ data: binaryString, address: 0 }],
+      fileArray: [{ data: binaryString, address: flashAddress }],
       flashSize: 'keep',
       flashMode: 'keep',
       flashFreq: 'keep',
