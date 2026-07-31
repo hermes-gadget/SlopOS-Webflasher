@@ -295,15 +295,5 @@
 
   <script type="module" src="assets/app.js?v=20260709a"></script>
 
-  <!-- Show current version in download section -->
-  <script>
-  fetch('/api/releases', { headers: { Accept: 'application/json' } })
-    .then(r => r.json())
-    .then(releases => {
-      const el = document.getElementById('beta-version');
-      if (el && releases.length) el.textContent = releases[0].tag_name;
-    })
-    .catch(() => {});
-  </script>
 </body>
 </html>

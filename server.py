@@ -25,6 +25,7 @@ Security features:
   • Content-Type enforced by file extension
 """
 
+import hashlib
 import http.server
 import json
 import os
@@ -44,6 +45,14 @@ ALLOWED_EXTENSIONS = {".bin", ".json"}
 
 # ── path security ───────────────────────────────────────
 SAFE_PATH_RE = re.compile(r"^[a-zA-Z0-9_.\-/]+$")
+
+
+def sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def vault_path(relative: str) -> str | None:
@@ -103,7 +112,7 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
         " connect-src 'self';"
         " style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;"
         " font-src 'self' https://fonts.gstatic.com;"
-        " script-src 'self' 'unsafe-inline';"
+        " script-src 'self';"
         " img-src 'self' data:;"
         " frame-src 'none';"
         " object-src 'none';"
@@ -127,10 +136,19 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
         print(f"[flasher] {json.dumps(log_entry)}")
 
     def send_security_headers(self, is_download=False):
-        """Override CSP for specific responses (firmware downloads get sandbox)."""
+        """Apply response-specific security headers."""
         if is_download:
             self.send_header("Content-Security-Policy", self.CSP_DOWNLOAD)
             self.send_header("X-Content-Type-Options", "nosniff")
+
+    def _send_common_headers(self, is_download=False):
+        for header, value in self.SECURITY_HEADERS.items():
+            if header != "Content-Security-Policy":
+                self.send_header(header, value)
+        self.send_header(
+            "Content-Security-Policy",
+            self.CSP_DOWNLOAD if is_download else self.CSP_PAGE,
+        )
 
     def send_cors_headers(self):
         """CORS for API endpoints — restrict to same-origin for firmware."""
@@ -144,9 +162,7 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
     def send_response(self, code, message=None):
         """Override to inject security headers into EVERY response."""
         super().send_response(code, message)
-        for header, value in self.SECURITY_HEADERS.items():
-            self.send_header(header, value)
-        self.send_header("Content-Security-Policy", self.CSP_PAGE)
+        self._send_common_headers(getattr(self, "_download_response", False))
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -180,6 +196,26 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
         if not getattr(self, '_is_head', False):
             self.wfile.write(data.encode())
 
+    # ── API: firmware hashes ────────────────────────────
+    def serve_firmware_hashes(self):
+        """Return hashes for mutable channel aliases, including debug builds."""
+        hashes = {}
+        for channel, filename in (("latest", "firmware-merged.bin"),
+                                  ("dev", "firmware-merged.bin"),
+                                  ("debug", "firmware-debug.bin")):
+            path = vault_path(os.path.join(channel, filename))
+            if path:
+                hashes[f"{channel}/{filename}"] = sha256_file(path)
+        data = json.dumps(hashes, separators=(",", ":")).encode()
+        self.send_response(200)
+        self.send_cors_headers()
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-cache, must-revalidate")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        if not getattr(self, '_is_head', False):
+            self.wfile.write(data)
+
     # ── API: firmware file serving ──────────────────────
     def serve_firmware(self, relative_path: str, as_download=False):
         """Serve a firmware file from the vault with security checks."""
@@ -207,9 +243,12 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
 
         fname = os.path.basename(abspath)
 
-        self.send_response(200)
+        self._download_response = as_download
+        try:
+            self.send_response(200)
+        finally:
+            self._download_response = False
         self.send_cors_headers()
-        self.send_security_headers(is_download=as_download)
 
         if as_download:
             self.send_header("Content-Type", content_type)
@@ -244,6 +283,10 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
         # ── API endpoints ────────────────────────────────
         if path == "/api/releases":
             self.serve_releases()
+            return
+
+        if path == "/api/hashes":
+            self.serve_firmware_hashes()
             return
 
         if path.startswith("/api/firmware/"):
