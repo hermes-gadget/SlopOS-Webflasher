@@ -11,6 +11,7 @@ const RELEASES_CACHE_TTL = 5 * 60 * 1000; // 5 min
 
 let selectedChannel = null;   // 'stable' | 'beta' | 'debug'
 let releaseData = null;       // { stable: {...}, beta: {...} }
+let firmwareHashes = {};
 let serialPort = null;
 let esptoolPromise = null;
 let flashing = false;
@@ -80,6 +81,12 @@ function enableBtn(btn, enabled) {
 }
 
 // ── Local API ─────────────────────────────
+async function fetchHashes() {
+  const resp = await fetch(`${API_BASE}/hashes`, { cache: 'no-store', headers: { Accept: 'application/json' } });
+  if (!resp.ok) throw new Error(`Hash API error: ${resp.status}`);
+  firmwareHashes = await resp.json();
+}
+
 async function fetchReleases() {
   // Check local cache first (avoids unnecessary requests)
   try {
@@ -147,13 +154,30 @@ function getFirmwareUrl(channel, filename) {
   return `${API_BASE}/firmware/${channelPath}/${filename}`;
 }
 
-async function downloadBinary(url) {
+async function sha256Hex(buf) {
+  const digest = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function downloadBinary(url, expectedSha256 = '') {
   log(`Downloading firmware binary...`);
-  const resp = await fetch(url);
+  const resp = await fetch(url, { cache: 'no-store' });
   if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
   const buf = await resp.arrayBuffer();
-  log(`Downloaded ${buf.byteLength.toLocaleString()} bytes.`, 'green');
+  const actualSha256 = await sha256Hex(buf);
+  if (!expectedSha256) {
+    throw new Error('Firmware integrity metadata is unavailable');
+  }
+  if (actualSha256 !== expectedSha256.toLowerCase()) {
+    throw new Error(`Firmware integrity check failed (SHA-256 mismatch)`);
+  }
+  log(`Downloaded ${buf.byteLength.toLocaleString()} bytes. SHA-256: ${actualSha256}`, 'green');
   return buf;
+}
+
+function selectedFirmwareHash(channel, filename) {
+  const channelPath = channel === 'stable' ? 'latest' : channel === 'debug' ? 'debug' : 'dev';
+  return firmwareHashes[`${channelPath}/${filename}`] || '';
 }
 
 async function withTimeout(promise, ms, msg) {
@@ -246,13 +270,15 @@ async function flashFirmware() {
   consoleEl.classList.add('console--visible');
 
   const channel = selectedChannel;
+  let transport = null;
 
   // Build download URL from local firmware vault
   const firmwareUrl = getFirmwareUrl(channel, channel === 'debug' ? 'firmware-debug.bin' : 'firmware-merged.bin');
 
   try {
     setProgress(5, 'Downloading firmware');
-    const firmwareBuf = await downloadBinary(firmwareUrl);
+    const firmwareName = channel === 'debug' ? 'firmware-debug.bin' : 'firmware-merged.bin';
+    const firmwareBuf = await downloadBinary(firmwareUrl, selectedFirmwareHash(channel, firmwareName));
     const binaryString = binaryToBinaryString(firmwareBuf);
 
     setProgress(15, 'Loading esptool-js');
@@ -265,7 +291,7 @@ async function flashFirmware() {
     log('Tip: if it hangs, hold BOOT, tap RESET, release BOOT, then click Flash again.', 'dim');
 
     // Pass the port to esptool-js (it opens and manages the connection natively)
-    const transport = new Transport(serialPort);
+    transport = new Transport(serialPort);
     const loader = new ESPLoader({
       transport,
       baudrate: 115200,
@@ -358,12 +384,18 @@ async function flashFirmware() {
     setStepStatus(stepFlash, 'error', 'Failed');
     log(`Flash error: ${err.message}`, 'red');
     log('Try putting the T-Deck into bootloader mode manually: hold BOOT, tap RESET, release BOOT.', 'orange');
-    flashing = false;
     enableBtn(flashBtn, true);
     flashBtn.textContent = 'Try Again';
+  } finally {
+    // Always release esptool resources so repeated flashes do not leave WebSerial locked.
+    try {
+      if (transport) {
+        if (typeof transport.disconnect === 'function') await transport.disconnect();
+        else if (typeof transport.close === 'function') await transport.close();
+      }
+    } catch (_) {}
+    flashing = false;
   }
-
-  flashing = false;
 }
 
 // ── ESPTool load + helpers ────────────────
@@ -643,10 +675,11 @@ async function init() {
 
   // Fetch releases from local API
   try {
-    await fetchReleases();
+    await Promise.all([fetchReleases(), fetchHashes()]);
   } catch (err) {
-    log(`Failed to fetch releases: ${err.message}`, 'red');
-    log('The page will still work, but firmware versions may not display.', 'orange');
+    log(`Failed to fetch release integrity data: ${err.message}`, 'red');
+    log('Firmware flashing is disabled until release metadata and hashes are available.', 'orange');
+    releaseData = null;
   }
 
   // Auto-select beta (or stable if available)

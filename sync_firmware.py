@@ -13,6 +13,15 @@ State is persisted in vault/state.json so we only fetch new releases.
 import hashlib
 import json
 import logging
+
+
+def sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 import os
 import re
 import sys
@@ -319,6 +328,7 @@ def sync_releases():
                 assets_list.append({
                     "name": fname,
                     "size": os.path.getsize(fpath),
+                    "sha256": sha256_file(fpath),
                 })
         releases_meta.append({
             "tag_name": tag,

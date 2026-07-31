@@ -14,3 +14,5 @@ OPENAI.md
 **/AI.md
 **/OPENAI.md
 node_modules/
+*.log
+__pycache__/
