@@ -4,5 +4,34 @@ services:
       context: .
     container_name: sigurdos-webflasher
     restart: unless-stopped
+    depends_on:
+      sigurdos-backend:
+        condition: service_started
     ports:
       - "8081:80"
+
+  sigurdos-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: sigurdos-webflasher-backend
+    restart: unless-stopped
+    environment:
+      SIGURDOS_FIRMWARE_VAULT: /vault
+    expose:
+      - "8082"
+    volumes:
+      - ${SIGURDOS_FIRMWARE_VAULT:-./vault}:/vault:ro
+
+  firmware-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      SIGURDOS_FIRMWARE_VAULT: /vault
+    profiles:
+      - sync
+    user: "10001:10001"
+    volumes:
+      - ${SIGURDOS_FIRMWARE_VAULT:-./vault}:/vault:rw
+    command: ["python3", "sync_firmware.py"]

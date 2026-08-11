@@ -87,6 +87,22 @@ test('flash address and application image come from the validated manifest', asy
   assert.equal(plan[0].address, 0x10000);
 });
 
+test('update mode verifies firmware.bin against its own signed digest', async () => {
+  const manifest = sampleManifest();
+  const image = validEsp32S3Image();
+  manifest.modes.update[0].size = image.byteLength;
+  manifest.modes.update[0].sha256 = await sha256Hex(arrayBuffer(image));
+  const tampered = image.slice();
+  tampered[32] ^= 1;
+
+  await assert.rejects(
+    buildFlashPlan(manifest, 'update', new Map([
+      ['firmware.bin', arrayBuffer(tampered)],
+    ])),
+    /firmware\.bin digest differs from the signed manifest/,
+  );
+});
+
 test('filename-based images with invalid ESP headers are rejected', async () => {
   const manifest = sampleManifest();
   const image = new Uint8Array(64);
