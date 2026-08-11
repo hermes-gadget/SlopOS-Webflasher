@@ -3,7 +3,7 @@
 SigurdOS Web Flasher Server — static files + local firmware vault + security.
 
 Serves:
-  • Static web flasher files (index.html, assets/, etc.)
+  • An exact allowlist of static web flasher files
   • /api/releases          — JSON list of all archived releases (for the frontend)
   • /api/firmware/<path>   — Firmware file from local vault
   • /firmware/<path>       — Same, direct download with Content-Disposition
@@ -25,7 +25,6 @@ Security features:
   • Content-Type enforced by file extension
 """
 
-import hashlib
 import http.server
 import json
 import os
@@ -35,24 +34,30 @@ import time
 import urllib.parse
 
 # ── config ──────────────────────────────────────────────
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8082
+DEFAULT_PORT = 8082
+DEFAULT_HOST = "127.0.0.1"
 VAULT = os.path.expanduser("~/firmware/vault")
 # In production, VAULT should be absolute; local development relative
 VAULT = os.path.abspath(VAULT)
 
 # Only serve these file extensions from the firmware vault
-ALLOWED_EXTENSIONS = {".bin", ".json"}
+ALLOWED_EXTENSIONS = {".bin", ".json", ".sig"}
+STATIC_ROOT = os.path.dirname(os.path.abspath(__file__))
+STATIC_FILES = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/assets/app.js": ("assets/app.js", "application/javascript; charset=utf-8"),
+    "/assets/firmware-security.js": ("assets/firmware-security.js", "application/javascript; charset=utf-8"),
+    "/assets/styles.css": ("assets/styles.css", "text/css; charset=utf-8"),
+    "/assets/sigurdos-banner.png": ("assets/sigurdos-banner.png", "image/png"),
+    "/assets/vendor/esptool-js-bundle.js": (
+        "assets/vendor/esptool-js-bundle.js",
+        "application/javascript; charset=utf-8",
+    ),
+}
 
 # ── path security ───────────────────────────────────────
 SAFE_PATH_RE = re.compile(r"^[a-zA-Z0-9_.\-/]+$")
-
-
-def sha256_file(path: str) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def vault_path(relative: str) -> str | None:
@@ -92,7 +97,7 @@ def vault_path(relative: str) -> str | None:
 
 
 # ── server ──────────────────────────────────────────────
-class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
+class FirmwareHandler(http.server.BaseHTTPRequestHandler):
     # Security headers applied to every response
     SECURITY_HEADERS = {
         "X-Content-Type-Options": "nosniff",
@@ -196,26 +201,6 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
         if not getattr(self, '_is_head', False):
             self.wfile.write(data.encode())
 
-    # ── API: firmware hashes ────────────────────────────
-    def serve_firmware_hashes(self):
-        """Return hashes for mutable channel aliases, including debug builds."""
-        hashes = {}
-        for channel, filename in (("latest", "firmware-merged.bin"),
-                                  ("dev", "firmware-merged.bin"),
-                                  ("debug", "firmware-debug.bin")):
-            path = vault_path(os.path.join(channel, filename))
-            if path:
-                hashes[f"{channel}/{filename}"] = sha256_file(path)
-        data = json.dumps(hashes, separators=(",", ":")).encode()
-        self.send_response(200)
-        self.send_cors_headers()
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Cache-Control", "no-cache, must-revalidate")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        if not getattr(self, '_is_head', False):
-            self.wfile.write(data)
-
     # ── API: firmware file serving ──────────────────────
     def serve_firmware(self, relative_path: str, as_download=False):
         """Serve a firmware file from the vault with security checks."""
@@ -238,6 +223,8 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
             content_type = "application/octet-stream"
         elif ext == ".json":
             content_type = "application/json"
+        elif ext == ".sig":
+            content_type = "text/plain; charset=utf-8"
         else:
             content_type = "application/octet-stream"
 
@@ -258,7 +245,7 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
 
         self.send_header("Content-Length", str(len(data)))
         # Firmware binaries are immutable — cache aggressively
-        if "/archive/" in relative_path and ext == ".bin":
+        if relative_path.startswith("archive/") and ext == ".bin":
             self.send_header("Cache-Control", "public, max-age=86400, immutable")
         else:
             self.send_header("Cache-Control", "public, max-age=3600")
@@ -283,10 +270,6 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
         # ── API endpoints ────────────────────────────────
         if path == "/api/releases":
             self.serve_releases()
-            return
-
-        if path == "/api/hashes":
-            self.serve_firmware_hashes()
             return
 
         if path.startswith("/api/firmware/"):
@@ -320,27 +303,18 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
                 self.serve_firmware(vault_rel, as_download=True)
                 return
 
-        # ── Root redirect to flasher UI ──────────────────
-        if path == "/" or path == "":
-            return super().do_GET()
-
-        # ── Static files (existing behavior) ─────────────
-        # JS files: serve directly so we can control caching
-        if path.endswith(".js"):
-            self.serve_static_js(path)
+        # ── Exact static allowlist ───────────────────────
+        if path in STATIC_FILES:
+            self.serve_static(path)
             return
 
-        return super().do_GET()
+        # Never fall through to the source checkout or directory listing.
+        self.send_error(404, "Not found")
 
-    def serve_static_js(self, path):
-        """Serve a .js file with no-cache headers to avoid stale Cloudflare cache."""
-        docroot = os.getcwd()
-        filepath = os.path.join(docroot, path.lstrip("/"))
-        filepath = os.path.normpath(filepath)
-        # Security: must be within docroot
-        if not filepath.startswith(os.path.normpath(docroot) + os.sep):
-            self.send_error(404)
-            return
+    def serve_static(self, path):
+        """Serve one repository asset only after an exact path allowlist match."""
+        relative, content_type = STATIC_FILES[path]
+        filepath = os.path.join(STATIC_ROOT, relative)
         if not os.path.isfile(filepath):
             self.send_error(404)
             return
@@ -351,9 +325,12 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(500)
             return
         self.send_response(200)
-        self.send_header("Content-Type", "application/javascript")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-cache, must-revalidate")
+        if path == "/assets/vendor/esptool-js-bundle.js":
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        else:
+            self.send_header("Cache-Control", "no-cache, must-revalidate")
         self.end_headers()
         if not getattr(self, '_is_head', False):
             self.wfile.write(data)
@@ -361,17 +338,18 @@ class FirmwareHandler(http.server.SimpleHTTPRequestHandler):
 
 # ── main ────────────────────────────────────────────────
 if __name__ == "__main__":
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     http.server.HTTPServer.allow_reuse_address = True
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("SIGURDOS_PORT", DEFAULT_PORT))
+    host = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("SIGURDOS_HOST", DEFAULT_HOST)
 
     # Validate vault exists
     if not os.path.exists(VAULT):
         print(f"[flasher] WARNING: Firmware vault not found at {VAULT}")
         print(f"[flasher] Run sync_firmware.py first or create the directory")
 
-    print(f"[flasher] SigurdOS Web Flasher on http://0.0.0.0:{PORT}")
+    print(f"[flasher] SigurdOS Web Flasher on http://{host}:{port}")
     print(f"[flasher] Firmware vault: {VAULT}")
-    print(f"[flasher] Static root:   {os.getcwd()}")
+    print(f"[flasher] Static root:   {STATIC_ROOT} (exact allowlist)")
     print(f"[flasher] Endpoints:")
     print(f"[flasher]   /api/releases                  — firmware metadata (JSON)")
     print(f"[flasher]   /api/firmware/dev/firmware-merged.bin   — via API (inline)")
@@ -379,5 +357,5 @@ if __name__ == "__main__":
     print(f"[flasher]   /latest/firmware-merged.bin     — direct download")
     print(f"[flasher]   /archive/beta/<tag>/<file>      — specific version")
 
-    srv = http.server.HTTPServer(("0.0.0.0", PORT), FirmwareHandler)
+    srv = http.server.HTTPServer((host, port), FirmwareHandler)
     srv.serve_forever()

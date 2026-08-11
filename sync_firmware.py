@@ -1,53 +1,45 @@
 #!/usr/bin/env python3
-"""
-SigurdOS Firmware Sync — watches GitHub releases, pulls assets to local vault.
+"""Mirror only signed, schema-validated SigurdOS T-Deck releases into the vault."""
 
-Runs every 5 minutes via cron (or systemd timer). Idempotent — safe to
-re-run. Archives every release version, then creates symlinks:
-  dev/     → latest prerelease
-  latest/ → latest stable (or dev if no stable exists)
-
-State is persisted in vault/state.json so we only fetch new releases.
-"""
+from __future__ import annotations
 
 import hashlib
 import json
 import logging
-
-
-def sha256_file(path: str) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
 import os
 import re
+import shutil
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
+import uuid
+from pathlib import Path
 
-# ── config ──────────────────────────────────────────────
-VAULT = os.path.expanduser("~/firmware/vault")
+from firmware_manifest import (
+    MANIFEST_FILENAME,
+    MAX_MANIFEST_SIZE,
+    MAX_SIGNATURE_SIZE,
+    PUBLIC_KEY_PATH,
+    SIGNATURE_FILENAME,
+    ManifestError,
+    load_manifest_bytes,
+    sha256_file,
+    validate_release_files,
+    verify_manifest_signature,
+)
+
+
+VAULT = Path(
+    os.environ.get("SIGURDOS_FIRMWARE_VAULT", "~/firmware/vault")
+).expanduser().resolve()
 GITHUB_OWNER = "hermes-gadget"
 GITHUB_REPO = "SigurdOS-tdeck"
-STATE_FILE = os.path.join(VAULT, "state.json")
-USER_AGENT = "SigurdOS-FirmwareSync/1.0"
+STATE_FILE = VAULT / "state.json"
+USER_AGENT = "SigurdOS-FirmwareSync/2.0"
+SAFE_TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
-# Files we care about (sorted by preference)
-ASSET_PATTERNS = [
-    re.compile(r"^firmware-merged\.bin$"),
-    re.compile(r"^firmware-debug\.bin$"),
-    re.compile(r"^firmware\.bin$"),
-    re.compile(r"^manifest\.json$"),
-    re.compile(r"^sigurdos-tdeck-(.+)\.(bin|json)$"),
-    re.compile(r"^bootloader\.bin$"),
-    re.compile(r"^partitions\.bin$"),
-]
-
-# ── setup ───────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [sync] %(levelname)s %(message)s",
@@ -55,306 +47,302 @@ logging.basicConfig(
 )
 log = logging.getLogger("firmware-sync")
 
-os.makedirs(VAULT, exist_ok=True)
 
-
-# ── helpers ─────────────────────────────────────────────
 def github_request(path: str) -> dict | list:
-    """Fetch JSON from GitHub API with retry."""
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/{path}"
-    req = urllib.request.Request(url, headers={
-        "User-Agent": USER_AGENT,
-        "Accept": "application/vnd.github.v3+json",
-    })
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github.v3+json"},
+    )
     for attempt in range(3):
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = resp.read()
-            return json.loads(data)
-        except urllib.error.HTTPError as e:
-            if e.code == 403 and attempt < 2:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            if exc.code == 403 and attempt < 2:
                 log.warning("Rate limited, sleeping 30s...")
                 time.sleep(30)
                 continue
             raise
-        except (urllib.error.URLError, OSError) as e:
+        except (urllib.error.URLError, OSError) as exc:
             if attempt < 2:
-                log.warning(f"Network error {e}, retrying in 10s...")
+                log.warning("Network error %s, retrying in 10s...", exc)
                 time.sleep(10)
                 continue
             raise
-    raise RuntimeError(f"Failed to fetch {path} after 3 attempts")
+    raise RuntimeError(f"failed to fetch {path} after 3 attempts")
 
 
-def download_asset(url: str, dest: str) -> bool:
-    """Download a file from GitHub to dest. Returns True if changed."""
-    tmp = dest + ".tmp"
-    req = urllib.request.Request(url, headers={
-        "Accept": "application/octet-stream",
-        "User-Agent": USER_AGENT,
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = resp.read()
-    except Exception as e:
-        log.error(f"Download failed: {url[:60]}… — {e}")
-        return False
-
-    # Check SHA256 to avoid unnecessary writes
-    new_hash = hashlib.sha256(data).hexdigest()
-    if os.path.exists(dest):
-        with open(dest, "rb") as f:
-            existing_hash = hashlib.sha256(f.read()).hexdigest()
-        if existing_hash == new_hash:
-            return False  # unchanged
-
-    with open(tmp, "wb") as f:
-        f.write(data)
-    os.replace(tmp, dest)
-    log.info(f"  Downloaded {os.path.basename(dest)} ({len(data)} bytes, sha256={new_hash[:12]}…)")
-    return True
-
-
-def is_interesting_asset(name: str) -> bool:
-    """Check if we should archive this asset."""
-    return any(p.match(name) for p in ASSET_PATTERNS)
-
-
-def safe_asset_name(name: str, tag: str) -> str:
-    """Normalize asset filenames to a consistent scheme."""
-    # If it already has the tag prefix, keep as-is (e.g. sigurdos-tdeck-firmware.bin)
-    # Otherwise use the original name (e.g. firmware-merged.bin)
-    if name.startswith("sigurdos-tdeck-") or name.startswith("slopos-tdeck-"):
-        # Strip old brand prefix
-        return re.sub(r"^(sigurdos|slopos)-tdeck-", "", name)
-    return name
-
-
-def load_state() -> dict:
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            log.warning("Corrupt state.json, starting fresh")
-    return {"last_checked_release": None, "downloaded": {}}
-
-
-def save_state(state: dict):
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
-        f.write("\n")
-
-
-def atomic_symlink(target: str, link: str):
-    """Create/update a symlink atomically."""
-    tmp = link + ".tmp"
-    os.symlink(target, tmp)
-    os.replace(tmp, link)
-
-
-def get_channel_dir(tag: str, is_prerelease: bool) -> str:
-    """Determine which channel directory a release belongs to."""
-    return "beta" if is_prerelease else "stable"
-
-
-# ── main sync logic ─────────────────────────────────────
-def scan_local_vault() -> list:
-    """
-    Scan local vault directories to build release metadata without GitHub API.
-
-    Returns the releases data structure (list of dicts with tag_name, prerelease,
-    assets) that would normally come from the GitHub API.
-    """
-    releases = []
-    archive_dir = os.path.join(VAULT, "archive")
-    if not os.path.isdir(archive_dir):
-        return releases
-
-    for channel in sorted(os.listdir(archive_dir), reverse=True):
-        channel_path = os.path.join(archive_dir, channel)
-        if not os.path.isdir(channel_path):
+def _asset_map(release: dict) -> dict[str, dict]:
+    result = {}
+    for asset in release.get("assets", []):
+        if not isinstance(asset, dict):
             continue
-        for tag in sorted(os.listdir(channel_path), reverse=True):
-            tag_path = os.path.join(channel_path, tag)
-            if not os.path.isdir(tag_path):
-                continue
-            assets = []
-            for fname in sorted(os.listdir(tag_path)):
-                fpath = os.path.join(tag_path, fname)
-                if os.path.isfile(fpath):
-                    assets.append({
-                        "name": fname,
-                        "size": os.path.getsize(fpath),
-                    })
-            releases.append({
-                "tag_name": tag,
-                "prerelease": channel == "beta",
-                "published_at": "",  # unknown from local scan
-                "assets": assets,
-            })
+        name = asset.get("name")
+        if not isinstance(name, str) or Path(name).name != name or name.startswith("."):
+            continue
+        if name in result:
+            raise ManifestError(f"GitHub release repeats asset {name!r}")
+        result[name] = asset
+    return result
+
+
+def download_asset(
+    asset: dict,
+    destination: Path,
+    *,
+    expected_size: int | None = None,
+    expected_sha256: str | None = None,
+    maximum_size: int,
+) -> None:
+    """Stream one release asset into a bounded temporary file, then promote it."""
+    url = asset.get("url")
+    if not isinstance(url, str) or not url.startswith("https://api.github.com/"):
+        raise ManifestError(f"{destination.name}: release asset URL is not a GitHub API URL")
+    metadata_size = asset.get("size")
+    if expected_size is not None and metadata_size != expected_size:
+        raise ManifestError(f"{destination.name}: GitHub size differs from signed size")
+    request = urllib.request.Request(
+        url,
+        headers={"Accept": "application/octet-stream", "User-Agent": USER_AGENT},
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            raw_length = response.headers.get("Content-Length")
+            if raw_length is None:
+                raise ManifestError(f"{destination.name}: missing Content-Length")
+            try:
+                content_length = int(raw_length)
+            except ValueError as exc:
+                raise ManifestError(f"{destination.name}: invalid Content-Length") from exc
+            required_size = expected_size if expected_size is not None else content_length
+            if content_length != required_size or content_length <= 0 or content_length > maximum_size:
+                raise ManifestError(f"{destination.name}: response size is outside signed bounds")
+
+            digest = hashlib.sha256()
+            total = 0
+            with tempfile.NamedTemporaryFile(
+                mode="wb", prefix=f".{destination.name}.", dir=destination.parent, delete=False
+            ) as output:
+                temp_path = Path(output.name)
+                while True:
+                    chunk = response.read(64 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > required_size or total > maximum_size:
+                        raise ManifestError(f"{destination.name}: download exceeded signed size")
+                    output.write(chunk)
+                    digest.update(chunk)
+                output.flush()
+                os.fsync(output.fileno())
+            if total != required_size:
+                raise ManifestError(f"{destination.name}: truncated download")
+            if expected_sha256 is not None and digest.hexdigest() != expected_sha256:
+                raise ManifestError(f"{destination.name}: SHA-256 differs from signed manifest")
+        os.replace(temp_path, destination)
+        temp_path = None
+    except (urllib.error.URLError, OSError) as exc:
+        raise ManifestError(f"{destination.name}: download failed: {exc}") from exc
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def _load_valid_release(directory: Path, expected_release: str) -> dict:
+    manifest_path = directory / MANIFEST_FILENAME
+    signature_path = directory / SIGNATURE_FILENAME
+    if manifest_path.is_symlink() or signature_path.is_symlink():
+        raise ManifestError("signed manifest files must not be symlinks")
+    verify_manifest_signature(manifest_path, signature_path, PUBLIC_KEY_PATH)
+    manifest = load_manifest_bytes(manifest_path.read_bytes(), expected_release)
+    validate_release_files(manifest, directory)
+    return manifest
+
+
+def stage_release(release: dict, channel: str, api_ok: bool) -> tuple[Path, dict] | None:
+    tag = release.get("tag_name")
+    if not isinstance(tag, str) or not SAFE_TAG_RE.fullmatch(tag):
+        raise ManifestError("release tag contains unsafe characters")
+    archive_parent = VAULT / "archive" / channel
+    archive_dir = archive_parent / tag
+    if archive_dir.is_dir():
+        try:
+            return archive_dir, _load_valid_release(archive_dir, tag)
+        except ManifestError as exc:
+            if not api_ok:
+                raise
+            log.warning("Existing %s is not trusted and will be replaced: %s", tag, exc)
+    if not api_ok:
+        return None
+
+    assets = _asset_map(release)
+    manifest_asset = assets.get(MANIFEST_FILENAME)
+    signature_asset = assets.get(SIGNATURE_FILENAME)
+    if manifest_asset is None or signature_asset is None:
+        raise ManifestError("release has no signed firmware manifest")
+
+    archive_parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{tag}.staging-", dir=archive_parent))
+    quarantine = None
+    try:
+        manifest_path = staging / MANIFEST_FILENAME
+        signature_path = staging / SIGNATURE_FILENAME
+        download_asset(manifest_asset, manifest_path, maximum_size=MAX_MANIFEST_SIZE)
+        download_asset(signature_asset, signature_path, maximum_size=MAX_SIGNATURE_SIZE)
+
+        # Authentication happens before any binary can enter a live archive/channel.
+        verify_manifest_signature(manifest_path, signature_path, PUBLIC_KEY_PATH)
+        manifest = load_manifest_bytes(manifest_path.read_bytes(), tag)
+        for mode in ("full", "update", "debug"):
+            image = manifest["modes"][mode][0]
+            asset = assets.get(image["file"])
+            if asset is None:
+                raise ManifestError(f"release is missing signed image {image['file']}")
+            download_asset(
+                asset,
+                staging / image["file"],
+                expected_size=image["size"],
+                expected_sha256=image["sha256"],
+                maximum_size=manifest["flash_size"],
+            )
+        validate_release_files(manifest, staging)
+
+        if archive_dir.exists():
+            quarantine = archive_parent / f".{tag}.rejected-{uuid.uuid4().hex}"
+            os.replace(archive_dir, quarantine)
+        os.replace(staging, archive_dir)
+        if quarantine is not None:
+            shutil.rmtree(quarantine)
+            quarantine = None
+        log.info("Promoted authenticated release %s (%s)", tag, channel)
+        return archive_dir, manifest
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+        if quarantine is not None and quarantine.exists() and not archive_dir.exists():
+            os.replace(quarantine, archive_dir)
+
+
+def scan_local_vault() -> list[dict]:
+    releases = []
+    archive_root = VAULT / "archive"
+    if not archive_root.is_dir():
+        return releases
+    for channel in ("stable", "beta"):
+        channel_path = archive_root / channel
+        if not channel_path.is_dir():
+            continue
+        directories = sorted(
+            (path for path in channel_path.iterdir() if path.is_dir() and SAFE_TAG_RE.fullmatch(path.name)),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        for path in directories:
+            releases.append(
+                {
+                    "tag_name": path.name,
+                    "prerelease": channel == "beta",
+                    "published_at": "",
+                    "assets": [],
+                }
+            )
     return releases
 
 
-def sync_releases():
-    state = load_state()
-    last_checked = state.get("last_checked_release")
-    downloaded = state.get("downloaded", {})
+def _atomic_json(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", prefix=f".{path.name}.", dir=path.parent, delete=False
+    ) as output:
+        temporary = Path(output.name)
+        json.dump(value, output, indent=2)
+        output.write("\n")
+        output.flush()
+        os.fsync(output.fileno())
+    os.replace(temporary, path)
 
+
+def _replace_symlink(link: Path, target: Path) -> None:
+    if link.exists() and not link.is_symlink():
+        raise ManifestError(f"refusing to replace non-symlink channel path {link}")
+    temporary = link.with_name(f".{link.name}.{uuid.uuid4().hex}.tmp")
+    temporary.symlink_to(os.path.relpath(target, link.parent))
+    os.replace(temporary, link)
+
+
+def _release_metadata(release: dict, directory: Path, manifest: dict) -> dict:
+    filenames = [MANIFEST_FILENAME, SIGNATURE_FILENAME]
+    filenames.extend(manifest["modes"][mode][0]["file"] for mode in ("full", "update", "debug"))
+    assets = []
+    for filename in filenames:
+        path = directory / filename
+        assets.append({"name": filename, "size": path.stat().st_size, "sha256": sha256_file(path)})
+    return {
+        "tag_name": manifest["release"],
+        "prerelease": bool(release.get("prerelease", True)),
+        "published_at": release.get("published_at", ""),
+        "assets": assets,
+    }
+
+
+def sync_releases() -> None:
+    VAULT.mkdir(parents=True, exist_ok=True)
     log.info("Fetching releases from GitHub...")
     try:
         releases = github_request("releases?per_page=20")
-        if not isinstance(releases, list) or len(releases) == 0:
-            raise ValueError("Unexpected response or no releases")
-        log.info(f"Got {len(releases)} releases from GitHub API")
+        if not isinstance(releases, list) or not releases:
+            raise ValueError("unexpected response or no releases")
         api_ok = True
-    except Exception as e:
-        log.warning(f"GitHub API failed ({e}). Falling back to local vault scan.")
+    except Exception as exc:
+        log.warning("GitHub API failed (%s). Validating the local vault only.", exc)
         releases = scan_local_vault()
         api_ok = False
-        log.info(f"Found {len(releases)} releases in local vault")
 
-    new_count = 0
+    validated = []
     latest_beta = None
     latest_stable = None
-
     for release in releases:
-        tag = release["tag_name"]
-        prerelease = release.get("prerelease", True)
-        published = release.get("published_at", "unknown")
-        assets = release.get("assets", [])
-        channel = get_channel_dir(tag, prerelease)
-
-        # Skip if we've already downloaded every asset for this version
-        already = downloaded.get(tag, {})
-        all_done = all(
-            already.get(a["name"], False)
-            for a in assets if is_interesting_asset(a["name"])
-        ) if assets else False
-
-        if all_done and last_checked and tag == last_checked:
-            # This release and everything before it is already processed
-            break
-
-        archive_dir = os.path.join(VAULT, "archive", channel, tag)
-        os.makedirs(archive_dir, exist_ok=True)
-        log.info(f"Processing {tag} ({channel}, published {published})")
-
-        changed = False
-        for asset in assets:
-            name = asset["name"]
-            if not is_interesting_asset(name):
+        tag = release.get("tag_name", "<invalid>")
+        channel = "beta" if release.get("prerelease", True) else "stable"
+        try:
+            staged = stage_release(release, channel, api_ok)
+            if staged is None:
                 continue
-
-            clean_name = safe_asset_name(name, tag)
-            dest = os.path.join(archive_dir, clean_name)
-
-            if api_ok:
-                log.info(f"  Asset: {name} → {clean_name}")
-                url = asset["url"]
-                ok = download_asset(url, dest)
-                if ok:
-                    changed = True
-            else:
-                # Local-only mode: just verify file exists
-                if os.path.isfile(dest):
-                    log.info(f"  Asset: {name} → {clean_name} (found locally)")
-                else:
-                    log.warning(f"  Asset: {name} → {clean_name} (MISSING - will fetch when API available)")
-
-            downloaded.setdefault(tag, {})[name] = True
-
-        if changed:
-            new_count += 1
-
-        # Track latest per channel
-        if channel == "beta" and (latest_beta is None or tag > latest_beta):
-            latest_beta = tag
-        if channel == "stable" and (latest_stable is None or tag > latest_stable):
-            latest_stable = tag
-
-        # Update last_checked (this release is fully processed)
-        if last_checked is None or tag > last_checked:
-            last_checked = tag
-
-    # ── Update symlinks ──────────────────────────────────
-    dev_link = os.path.join(VAULT, "dev")
-    latest_link = os.path.join(VAULT, "latest")
-
-    # Helper: replace a file/dir/symlink with a new symlink
-    def replace_with_symlink(target_path, link_target_rel):
-        if os.path.islink(target_path) or os.path.isfile(target_path):
-            os.unlink(target_path)
-        elif os.path.isdir(target_path):
-            # Try rmdir first (only works if empty)
-            try:
-                os.rmdir(target_path)
-            except OSError:
-                # Not empty — move contents aside
-                import shutil
-                tmp = target_path + "_contents"
-                os.rename(target_path, tmp)
-                log.warning(f"Moved existing contents of {os.path.basename(target_path)}/ to {tmp}")
-        atomic_symlink(link_target_rel, target_path)
-        log.info(f"{os.path.basename(target_path)} → {link_target_rel}")
-
-    # dev → latest beta (prerelease)
-    if latest_beta:
-        beta_archive = os.path.join(VAULT, "archive", "beta", latest_beta)
-        rel = os.path.relpath(beta_archive, VAULT)
-        replace_with_symlink(dev_link, rel)
-
-    # latest → stable if exists, else dev
-    if latest_stable:
-        stable_archive = os.path.join(VAULT, "archive", "stable", latest_stable)
-        rel = os.path.relpath(stable_archive, VAULT)
-        replace_with_symlink(latest_link, rel)
-    elif latest_beta:
-        replace_with_symlink(latest_link, "dev")
-
-    # ── Write releases.json for the frontend ─────────────
-    releases_meta = []
-    for release in releases:
-        tag = release["tag_name"]
-        prerelease = release.get("prerelease", True)
-        channel = get_channel_dir(tag, prerelease)
-        archive_dir = os.path.join(VAULT, "archive", channel, tag)
-        if not os.path.isdir(archive_dir):
+            directory, manifest = staged
+        except (ManifestError, OSError) as exc:
+            log.error("Rejected release %s: %s", tag, exc)
             continue
-        assets_list = []
-        for fname in sorted(os.listdir(archive_dir)):
-            fpath = os.path.join(archive_dir, fname)
-            if os.path.isfile(fpath):
-                assets_list.append({
-                    "name": fname,
-                    "size": os.path.getsize(fpath),
-                    "sha256": sha256_file(fpath),
-                })
-        releases_meta.append({
-            "tag_name": tag,
-            "prerelease": prerelease,
-            "published_at": release.get("published_at", ""),
-            "assets": assets_list,
-        })
+        validated.append(_release_metadata(release, directory, manifest))
+        if channel == "beta" and latest_beta is None:
+            latest_beta = directory
+        if channel == "stable" and latest_stable is None:
+            latest_stable = directory
 
-    meta_path = os.path.join(VAULT, "releases.json")
-    with open(meta_path, "w") as f:
-        json.dump(releases_meta, f, indent=2)
-        f.write("\n")
-    log.info(f"Wrote releases.json ({len(releases_meta)} releases)")
+    # GitHub returns newest releases first; only authenticated releases can become aliases.
+    if latest_beta is not None:
+        _replace_symlink(VAULT / "dev", latest_beta)
+        _replace_symlink(VAULT / "debug", latest_beta)
+    if latest_stable is not None:
+        _replace_symlink(VAULT / "latest", latest_stable)
+    elif latest_beta is not None:
+        _replace_symlink(VAULT / "latest", latest_beta)
 
-    # ── Save state ───────────────────────────────────────
-    state["last_checked_release"] = last_checked
-    state["downloaded"] = downloaded
-    state["last_sync"] = time.time()
-    save_state(state)
-
-    log.info(f"Sync complete. {new_count} new/updated release(s). last_checked={last_checked}")
+    _atomic_json(VAULT / "releases.json", validated)
+    state = {
+        "schema_version": 2,
+        "last_sync": time.time(),
+        "validated_releases": [release["tag_name"] for release in validated],
+    }
+    _atomic_json(STATE_FILE, state)
+    log.info("Sync complete. %d authenticated release(s) available.", len(validated))
 
 
 if __name__ == "__main__":
     try:
         sync_releases()
-    except Exception as e:
+    except Exception:
         log.exception("Sync failed")
         sys.exit(1)
