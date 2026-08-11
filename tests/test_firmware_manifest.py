@@ -140,6 +140,58 @@ class FirmwareManifestTests(unittest.TestCase):
 
 
 class SyncPromotionTests(unittest.TestCase):
+    def test_failed_asset_download_keeps_existing_destination(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / "firmware.bin"
+            destination.write_bytes(b"known-good")
+            asset = {"url": "https://api.github.com/repos/example/assets/1"}
+            with mock.patch.object(
+                sync_firmware.urllib.request,
+                "urlopen",
+                side_effect=sync_firmware.urllib.error.URLError("offline"),
+            ):
+                with self.assertRaisesRegex(firmware_manifest.ManifestError, "download failed"):
+                    sync_firmware.download_asset(asset, destination, maximum_size=1024)
+            self.assertEqual(b"known-good", destination.read_bytes())
+            self.assertEqual([], list(Path(temporary).glob(".*")))
+
+    def test_alias_selection_follows_api_order_not_tag_text(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary) / "vault"
+            newest = vault / "archive" / "beta" / "beta-0.1.10"
+            older = vault / "archive" / "beta" / "beta-0.1.9"
+            newest.mkdir(parents=True)
+            older.mkdir(parents=True)
+            releases = [
+                {"tag_name": "beta-0.1.10", "prerelease": True},
+                {"tag_name": "beta-0.1.9", "prerelease": True},
+            ]
+
+            def staged(release, channel, api_ok):
+                del channel, api_ok
+                directory = newest if release["tag_name"] == "beta-0.1.10" else older
+                return directory, {"release": release["tag_name"]}
+
+            def metadata(release, directory, manifest):
+                del directory, manifest
+                return {"tag_name": release["tag_name"]}
+
+            with (
+                mock.patch.object(sync_firmware, "VAULT", vault),
+                mock.patch.object(sync_firmware, "STATE_FILE", vault / "state.json"),
+                mock.patch.object(sync_firmware, "github_request", return_value=releases),
+                mock.patch.object(sync_firmware, "stage_release", side_effect=staged),
+                mock.patch.object(sync_firmware, "_release_metadata", side_effect=metadata),
+                mock.patch.object(sync_firmware, "_replace_symlink") as replace_symlink,
+                mock.patch.object(sync_firmware, "_atomic_json"),
+            ):
+                sync_firmware.sync_releases()
+
+            self.assertEqual(
+                (vault / "dev", newest),
+                replace_symlink.call_args_list[0].args,
+            )
+
     def test_unsigned_release_never_becomes_a_channel_alias(self):
         with tempfile.TemporaryDirectory() as temporary:
             vault = Path(temporary) / "vault"

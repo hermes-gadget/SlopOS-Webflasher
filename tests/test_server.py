@@ -21,6 +21,8 @@ class StaticServingTests(unittest.TestCase):
             "index.html": b"safe index",
             "assets/app.js": b"safe app",
             "assets/firmware-security.js": b"safe security",
+            "assets/md5.js": b"safe md5",
+            "assets/serial-cleanup.js": b"safe cleanup",
             "assets/styles.css": b"safe css",
             "assets/sigurdos-banner.png": b"safe png",
             "assets/vendor/esptool-js-bundle.js": b"safe vendor",
@@ -60,6 +62,8 @@ class StaticServingTests(unittest.TestCase):
     def test_exact_public_files_are_served(self):
         self.assertEqual((200, b"safe index"), self.status("/"))
         self.assertEqual((200, b"safe app"), self.status("/assets/app.js"))
+        self.assertEqual((200, b"safe md5"), self.status("/assets/md5.js"))
+        self.assertEqual((200, b"safe cleanup"), self.status("/assets/serial-cleanup.js"))
 
     def test_checkout_secrets_source_and_directories_are_denied(self):
         for path in ("/.env", "/.git/config", "/server.py", "/assets/"):

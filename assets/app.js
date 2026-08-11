@@ -13,6 +13,8 @@ import {
   confirmFullErase,
   verifySignedManifest,
 } from '/assets/firmware-security.js';
+import { md5Hex } from '/assets/md5.js';
+import { closeSerialPort } from '/assets/serial-cleanup.js';
 
 const API_BASE = '/api';
 const MANIFEST_FILENAME = 'firmware-manifest.json';
@@ -57,10 +59,18 @@ const startMonitorBtn = document.getElementById('btn-start-monitor');
 const captureStatus = document.getElementById('capture-status');
 
 // ── Helpers ──────────────────────────────
+const LOG_CLASSES = new Set(['red', 'green', 'dim', 'orange']);
+
+function appendTextLine(container, text, cls = '') {
+  const line = document.createElement('span');
+  if (LOG_CLASSES.has(cls)) line.classList.add(cls);
+  line.textContent = String(text);
+  container.append(line, document.createTextNode('\n'));
+}
+
 function log(msg, cls = '') {
   const t = new Date().toLocaleTimeString();
-  const line = `<span class="${cls}">[${t}] ${msg}</span>\n`;
-  consoleInner.innerHTML += line;
+  appendTextLine(consoleInner, `[${t}] ${msg}`, cls);
   consoleEl.scrollTop = consoleEl.scrollHeight;
   consoleEl.classList.add('console--visible');
 }
@@ -244,13 +254,20 @@ async function connectSerial() {
 }
 
 async function disconnectSerial() {
+  const port = serialPort;
   try {
-    if (serialPort) {
-      await serialPort.close();
-    }
-  } catch (e) {
-    // ignore
+    await closeSerialPort({
+      reader: activeCaptureReader,
+      readPromise: captureReadPromise,
+      port,
+    });
+  } catch (error) {
+    const message = error?.message || String(error);
+    log(`Serial disconnect failed: ${message}`, 'red');
+    // Keep serialPort set so the caller can retry after the stream unlocks.
+    throw error;
   }
+
   serialPort = null;
   setStepStatus(stepConnect, 'ready', 'Not connected');
   connectBtn.textContent = 'Connect T-Deck';
@@ -356,6 +373,9 @@ async function flashFirmware() {
       flashFreq: 'keep',
       eraseAll: fullEraseRequested,
       compress: true,
+      // esptool-js calls this for every image and compares it with the
+      // bootloader's flashMd5sum result before writeFlash resolves.
+      calculateMD5Hash: md5Hex,
       reportProgress: (_idx, written, total) => {
         const pct = total > 0 ? Math.round(30 + (written / total) * 65) : 30;
         setProgress(Math.min(95, pct), `Writing firmware (${(written / 1024 / 1024).toFixed(1)}/${(total / 1024 / 1024).toFixed(1)} MB)`);
@@ -398,7 +418,12 @@ async function flashFirmware() {
   } catch (err) {
     setProgress(0, 'Error');
     setStepStatus(stepFlash, 'error', 'Failed');
-    log(`Flash error: ${err.message}`, 'red');
+    const errorMessage = err?.message || String(err);
+    if (/MD5 of file does not match data in flash/i.test(errorMessage)) {
+      log('Flash readback verification failed. The device was not reset; retry in bootloader mode.', 'red');
+    } else {
+      log(`Flash error: ${errorMessage}`, 'red');
+    }
     log('Try putting the T-Deck into bootloader mode manually: hold BOOT, tap RESET, release BOOT.', 'orange');
     enableBtn(flashBtn, true);
     flashBtn.textContent = 'Try Again';
@@ -439,6 +464,19 @@ let captureRunning = false;
 let captureBuffer = '';
 let captureStartTime = 0;
 let captureTimerInterval = null;
+let activeCaptureReader = null;
+let captureReadPromise = null;
+
+function setCaptureStatus(text, recording = false) {
+  captureStatus.replaceChildren();
+  if (recording) {
+    const dot = document.createElement('span');
+    dot.classList.add('rec-dot');
+    captureStatus.append(dot, document.createTextNode(` ${text}`));
+  } else {
+    captureStatus.textContent = text;
+  }
+}
 
 function showCaptureUI(show) {
   const el = document.getElementById('step-capture');
@@ -454,16 +492,9 @@ function showCaptureUI(show) {
 
 function logCapture(text, cls = '') {
   const el = document.getElementById('capture-log');
-  const line = `<span class="${cls}">${escapeHtml(text)}</span>\n`;
-  el.innerHTML += line;
+  appendTextLine(el, text, cls);
   const console = document.getElementById('capture-console');
   console.scrollTop = console.scrollHeight;
-}
-
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
 }
 
 function updateCaptureStats() {
@@ -486,7 +517,7 @@ async function startSerialMonitor() {
   logCapture('2. Then click the **🔌 Start Monitor** button below to connect.\n', 'green');
   setMonitorButtonState(false);
   document.getElementById('btn-stop-capture').style.display = 'none';
-  captureStatus.innerHTML = 'Ready';
+  setCaptureStatus('Ready');
 }
 
 function setMonitorButtonState(monitoring) {
@@ -522,17 +553,21 @@ async function startMonitorConnect() {
 
     // Update UI
     document.getElementById('btn-stop-capture').style.display = 'inline-block';
-    captureStatus.innerHTML = '<span class="rec-dot"></span> REC';
+    setCaptureStatus('REC', true);
     setMonitorButtonState(true);
 
     // Start reading
     await beginCaptureRead();
   } catch (err) {
     logCapture(`[error] ${err.message}\n`, 'red');
-    serialPort = null;
+    try {
+      await disconnectSerial();
+    } catch (cleanupError) {
+      logCapture(`[error] Serial cleanup failed: ${cleanupError.message}\n`, 'red');
+    }
     setMonitorButtonState(false);
     document.getElementById('btn-stop-capture').style.display = 'none';
-    captureStatus.innerHTML = 'Error';
+    setCaptureStatus('Error');
   }
 }
 
@@ -550,38 +585,52 @@ async function beginCaptureRead() {
 
   logCapture('Listening...\n', 'green');
 
-  try {
-    const reader = serialPort.readable.getReader();
+  const readPromise = (async () => {
     try {
-      while (captureRunning) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        const text = new TextDecoder().decode(value);
-        captureBuffer += text;
-        logCapture(text);
+      const reader = serialPort.readable.getReader();
+      activeCaptureReader = reader;
+      try {
+        while (captureRunning) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          const text = new TextDecoder().decode(value);
+          captureBuffer += text;
+          logCapture(text);
+        }
+      } finally {
+        activeCaptureReader = null;
+        try { reader.releaseLock(); } catch (_) {}
       }
-    } finally {
-      try { reader.releaseLock(); } catch (_) {}
+    } catch (err) {
+      if (captureRunning) {
+        logCapture(`\n[error] ${err.message}`, 'red');
+      }
     }
-  } catch (err) {
-    if (captureRunning) {
-      logCapture(`\n[error] ${err.message}`, 'red');
+
+    const stoppedByUser = !captureRunning;
+    captureRunning = false;
+    logCapture('\nSerial stream ended.', 'orange');
+    if (captureTimerInterval) {
+      clearInterval(captureTimerInterval);
+      captureTimerInterval = null;
     }
-  }
 
-  logCapture('\nSerial stream ended.', 'orange');
-  if (captureTimerInterval) {
-    clearInterval(captureTimerInterval);
-    captureTimerInterval = null;
+    // Reset UI state for reconnection, unless Stop already set the final state.
+    if (!stoppedByUser) {
+      setMonitorButtonState(false);
+      document.getElementById('btn-stop-capture').style.display = 'none';
+      setCaptureStatus('Disconnected');
+    }
+  })();
+  captureReadPromise = readPromise;
+  try {
+    await readPromise;
+  } finally {
+    if (captureReadPromise === readPromise) captureReadPromise = null;
   }
-
-  // Reset UI state for reconnection
-  setMonitorButtonState(false);
-  document.getElementById('btn-stop-capture').style.display = 'none';
-  captureStatus.innerHTML = 'Disconnected';
 }
 
-function stopCapture() {
+async function stopCapture() {
   captureRunning = false;
   if (captureTimerInterval) {
     clearInterval(captureTimerInterval);
@@ -592,18 +641,28 @@ function stopCapture() {
     'ready',
     'Stopped'
   );
-  captureStatus.innerHTML = 'Stopped';
+  setCaptureStatus('Stopping...');
 
-  // Re-enable Start Monitor button, hide Stop button
-  setMonitorButtonState(false);
+  // Prevent a second monitor connection while reader cancellation and close are pending.
+  startMonitorBtn.disabled = true;
   document.getElementById('btn-stop-capture').style.display = 'none';
 
-  // Disconnect serial port
-  disconnectSerial();
+  try {
+    // disconnectSerial cancels the active reader, awaits the read loop's
+    // finally/releaseLock, and only then closes the port.
+    await disconnectSerial();
+    setMonitorButtonState(false);
+    setCaptureStatus('Stopped');
+  } catch (error) {
+    setMonitorButtonState(false);
+    setCaptureStatus('Disconnect failed');
+    document.getElementById('btn-stop-capture').style.display = 'inline-block';
+    logCapture(`[error] Serial cleanup failed: ${error?.message || String(error)}\n`, 'red');
+  }
 }
 
 function clearCapture() {
-  document.getElementById('capture-log').innerHTML = '';
+  document.getElementById('capture-log').replaceChildren();
   captureBuffer = '';
   captureStartTime = Date.now();
 }

@@ -36,7 +36,9 @@ import urllib.parse
 # ── config ──────────────────────────────────────────────
 DEFAULT_PORT = 8082
 DEFAULT_HOST = "127.0.0.1"
-VAULT = os.path.expanduser("~/firmware/vault")
+VAULT = os.path.expanduser(
+    os.environ.get("SIGURDOS_FIRMWARE_VAULT", "~/firmware/vault")
+)
 # In production, VAULT should be absolute; local development relative
 VAULT = os.path.abspath(VAULT)
 
@@ -48,6 +50,8 @@ STATIC_FILES = {
     "/index.html": ("index.html", "text/html; charset=utf-8"),
     "/assets/app.js": ("assets/app.js", "application/javascript; charset=utf-8"),
     "/assets/firmware-security.js": ("assets/firmware-security.js", "application/javascript; charset=utf-8"),
+    "/assets/md5.js": ("assets/md5.js", "application/javascript; charset=utf-8"),
+    "/assets/serial-cleanup.js": ("assets/serial-cleanup.js", "application/javascript; charset=utf-8"),
     "/assets/styles.css": ("assets/styles.css", "text/css; charset=utf-8"),
     "/assets/sigurdos-banner.png": ("assets/sigurdos-banner.png", "image/png"),
     "/assets/vendor/esptool-js-bundle.js": (

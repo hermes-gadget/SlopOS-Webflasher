@@ -31,6 +31,25 @@ docker compose up --build -d
 
 Open `http://127.0.0.1:8081`.
 
+The compose deployment runs nginx and the Python API as separate services. Put a
+populated vault in `./vault` (or set `SIGURDOS_FIRMWARE_VAULT` to another host
+directory); nginx proxies `/api/*`, `/dev/*`, `/latest/*`, and `/archive/*` to
+the backend. The backend mounts the vault read-only, so the web tier cannot
+modify firmware.
+
+To populate the vault manually from the public GitHub releases API, run the
+least-privileged sync profile against a writable vault:
+
+```bash
+docker compose --profile sync run --rm firmware-sync
+```
+
+Production deployments should schedule that one-shot service outside the web
+stack (for example, a host timer or orchestrator job), keep the vault volume
+writable only for `firmware-sync`, and expose only the nginx port. The sync
+job, vault provisioning, TLS termination, and scheduler remain deployment
+infrastructure responsibilities.
+
 ## Architecture
 
 The flasher is a small Python backend (`server.py`) serving a static single-page frontend:
@@ -39,7 +58,8 @@ The flasher is a small Python backend (`server.py`) serving a static single-page
 - `sync_firmware.py` — promotes only signed, schema-valid T-Deck release binaries into the local vault
 - `firmware_manifest.py` — shared T-Deck/ESP32-S3 manifest, partition, image-header, size, offset, and digest contract
 - `sign_firmware_manifest.py` — trusted-CI helper for creating `firmware-manifest.json` and its detached signature
-- `nginx.conf` — production reverse proxy (Docker)
+- `nginx.conf` + `nginx-security-headers.conf` — static frontend, backend proxy, and security headers (Docker)
+- `Dockerfile.backend` — unprivileged Python API/sync image
 - `index.html` — pixel-themed UI (Press Start 2P headers, Pixelify Sans body)
 - `assets/app.js` + `assets/firmware-security.js` — channel selection, signature/schema/image verification, and esptool-js flashing
 - `assets/styles.css` — pixel theme matching sigurdos.dev
