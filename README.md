@@ -121,3 +121,19 @@ python3 server.py
 Open `http://127.0.0.1:8082`.
 
 The development server binds only to loopback by default. An intentional network deployment can pass a host explicitly (`python3 server.py 8082 0.0.0.0`) or set `SIGURDOS_HOST`, and should remain behind the production reverse proxy.
+
+### Verification and dependency provenance
+
+Run the repository checks locally:
+
+```bash
+node --test
+python3 -m unittest discover -s tests -p 'test_*.py'
+```
+
+`package-lock.json` pins the Node test installation. The Python services use only
+the standard library. Docker base images are pinned by digest in both Dockerfiles.
+The browser flasher's vendored dependency is pinned in
+[`assets/vendor/esptool-js-bundle.lock.json`](assets/vendor/esptool-js-bundle.lock.json),
+and [`VENDORING.md`](VENDORING.md) records its license, hashes, reproducible bundle
+check, and the required review process for future updates.

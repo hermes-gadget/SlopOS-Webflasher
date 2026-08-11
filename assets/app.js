@@ -37,6 +37,18 @@ const betaCard = document.getElementById('channel-beta');
 const debugCard = document.getElementById('channel-debug');
 const stableVersion = document.getElementById('stable-version');
 const betaVersion = document.getElementById('beta-version');
+const stableDownloadPanel = document.getElementById('download-stable');
+const betaDownloadPanel = document.getElementById('download-beta');
+const debugDownloadPanel = document.getElementById('download-debug');
+const stableDownloadVersion = document.getElementById('stable-download-version');
+const betaDownloadVersion = document.getElementById('beta-download-version');
+const debugDownloadVersion = document.getElementById('debug-download-version');
+const stableFullDownload = document.getElementById('stable-full-download');
+const stableUpdateDownload = document.getElementById('stable-update-download');
+const betaFullDownload = document.getElementById('beta-full-download');
+const betaUpdateDownload = document.getElementById('beta-update-download');
+const debugFullDownload = document.getElementById('debug-full-download');
+const debugUpdateDownload = document.getElementById('debug-update-download');
 const consoleEl = document.getElementById('console');
 const consoleInner = document.getElementById('console-log');
 const progressWrap = document.getElementById('progress-wrap');
@@ -47,8 +59,6 @@ const deviceInfo = document.getElementById('device-info');
 const chipName = document.getElementById('chip-name');
 const chipMac = document.getElementById('chip-mac');
 const chipFlash = document.getElementById('chip-flash');
-const connectStatus = document.getElementById('connect-status');
-const flashStatus = document.getElementById('flash-status');
 const stepConnect = document.getElementById('step-connect');
 const stepChannel = document.getElementById('step-channel');
 const stepFlash = document.getElementById('step-flash');
@@ -57,6 +67,7 @@ const eraseToggle = document.getElementById('erase-all');
 // ── Capture UI refs ─────────────────────────
 const startMonitorBtn = document.getElementById('btn-start-monitor');
 const captureStatus = document.getElementById('capture-status');
+const reviewDebugLog = document.getElementById('review-debug-log');
 
 // ── Helpers ──────────────────────────────
 const LOG_CLASSES = new Set(['red', 'green', 'dim', 'orange']);
@@ -146,6 +157,9 @@ function updateChannelLabels() {
   if (!releaseData) return;
   if (releaseData.stable) {
     stableVersion.textContent = releaseData.stable.tag_name;
+    stableCard.classList.remove('channel-card--unavailable');
+    stableCard.style.cursor = '';
+    stableCard.style.opacity = '';
   } else {
     stableVersion.textContent = 'No stable release yet';
     stableCard.classList.add('channel-card--unavailable');
@@ -155,7 +169,69 @@ function updateChannelLabels() {
   }
   if (releaseData.beta) {
     betaVersion.textContent = releaseData.beta.tag_name;
+  } else {
+    betaVersion.textContent = 'No beta release yet';
   }
+  updateDownloadLinks();
+}
+
+function releaseHasAsset(release, filename) {
+  return release?.assets?.some(asset => asset?.name === filename) === true;
+}
+
+function updateDownloadPanel({ panel, version, release, channel, links, emptyLabel }) {
+  const available = Boolean(release);
+  panel.classList.toggle('fd-channel--disabled', !available);
+  version.textContent = release?.tag_name || emptyLabel;
+
+  for (const [filename, link] of links) {
+    const enabled = available && releaseHasAsset(release, filename);
+    link.classList.toggle('fd-btn--disabled', !enabled);
+    link.setAttribute('aria-disabled', String(!enabled));
+    if (enabled) {
+      link.href = getFirmwareUrl(channel, filename);
+      link.setAttribute('download', '');
+    } else {
+      link.removeAttribute('href');
+      link.removeAttribute('download');
+    }
+  }
+}
+
+function updateDownloadLinks() {
+  updateDownloadPanel({
+    panel: stableDownloadPanel,
+    version: stableDownloadVersion,
+    release: releaseData?.stable,
+    channel: 'stable',
+    links: [
+      ['firmware-merged.bin', stableFullDownload],
+      ['firmware.bin', stableUpdateDownload],
+    ],
+    emptyLabel: 'No stable release yet',
+  });
+  updateDownloadPanel({
+    panel: betaDownloadPanel,
+    version: betaDownloadVersion,
+    release: releaseData?.beta,
+    channel: 'beta',
+    links: [
+      ['firmware-merged.bin', betaFullDownload],
+      ['firmware.bin', betaUpdateDownload],
+    ],
+    emptyLabel: 'No beta release yet',
+  });
+  updateDownloadPanel({
+    panel: debugDownloadPanel,
+    version: debugDownloadVersion,
+    release: releaseData?.beta,
+    channel: 'debug',
+    links: [
+      ['firmware-debug.bin', debugFullDownload],
+      ['firmware.bin', debugUpdateDownload],
+    ],
+    emptyLabel: 'No debug release yet',
+  });
 }
 
 function getFirmwareUrl(channel, filename) {
@@ -321,14 +397,11 @@ async function flashFirmware() {
       romBaudrate: 115200,
       terminal: createFlashTerminal(),
       debugLogging: false,
+      resetConstructors: {
+        hardReset: (resetTransport, usingUsbOtg) => new HardReset(resetTransport, usingUsbOtg),
+        usbJTAGSerialReset: resetTransport => new UsbJtagSerialReset(resetTransport),
+      },
     });
-    // T-Deck uses native USB-Serial-JTAG — HardReset (DTR/RTS) doesn't work.
-    // UsbJtagSerialReset toggles the USB D+ line to trigger a hardware reset.
-    try {
-      loader.hr = new UsbJtagSerialReset(transport);
-    } catch (_) {
-      loader.hr = new HardReset(transport);
-    }
 
     const chipInfo = await withTimeout(
       loader.main(),
@@ -512,6 +585,7 @@ async function sleep(ms) {
 
 async function startSerialMonitor() {
   showCaptureUI(true);
+  if (reviewDebugLog) reviewDebugLog.checked = false;
   logCapture('✓ Debug firmware flashed!\n', 'green');
   logCapture('1. Tap the **RESET button** on your T-Deck to boot the new firmware.\n', 'green');
   logCapture('2. Then click the **🔌 Start Monitor** button below to connect.\n', 'green');
@@ -665,6 +739,7 @@ function clearCapture() {
   document.getElementById('capture-log').replaceChildren();
   captureBuffer = '';
   captureStartTime = Date.now();
+  if (reviewDebugLog) reviewDebugLog.checked = false;
 }
 
 function generateDebugReport(buffer, description, deviceInfo, duration) {
@@ -687,15 +762,20 @@ function generateDebugReport(buffer, description, deviceInfo, duration) {
     '',
     '═══ END OF REPORT ═══',
     '',
-    'Privacy: This report contains device diagnostics only.',
-    'No GPS coordinates, message content, or personal data.',
-    'Review before sharing.',
+    'Privacy warning: Serial output may contain sensitive data, including GPS coordinates,',
+    'message content, credentials, or device identifiers.',
+    'Review and redact this report before sharing.',
     ''
   ];
   return lines.join('\n');
 }
 
 function downloadDebugLog() {
+  if (!reviewDebugLog?.checked) {
+    logCapture('Review and redact the serial log before downloading or sharing it.', 'orange');
+    reviewDebugLog?.focus();
+    return;
+  }
   const description = document.getElementById('capture-description-input').value || '';
   const elapsed = Math.floor((Date.now() - captureStartTime) / 1000);
   const mins = Math.floor(elapsed / 60);
