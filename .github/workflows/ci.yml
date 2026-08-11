@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v7
+      - uses: actions/setup-node@1d0ff469b7f7b3f6d715c7c7bdf3c8f4e6c8c8c8 # v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: npm ci --ignore-scripts || npm install --ignore-scripts
+      - name: Node syntax + unit tests
+        run: |
+          for f in assets/*.js; do node --check "$f"; done
+          npm test
+      - name: Python syntax + regression tests
+        run: |
+          python3 -m py_compile server.py
+          python3 -m unittest discover -s tests -p "test_*.py"
