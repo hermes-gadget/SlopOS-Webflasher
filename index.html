@@ -194,8 +194,13 @@
             </div>
 
             <div class="privacy-notice">
-              <strong>🔒 Privacy:</strong> This report contains device diagnostics only — no GPS,
-              message content, or personal data. Review before sharing.
+              <strong>⚠️ Privacy warning:</strong> Serial logs may contain sensitive data, including GPS
+              coordinates, message content, credentials, or device identifiers. Review and redact the
+              report before sharing it.
+              <label class="privacy-review">
+                <input type="checkbox" id="review-debug-log">
+                I have reviewed and redacted this log before sharing.
+              </label>
             </div>
           </div>
         </div>
@@ -210,49 +215,49 @@
       <h2 class="fd-title">DOWNLOAD FIRMWARE</h2>
       <p class="fd-subtitle">Download the latest firmware for your T-Deck. Right-click a button to copy the direct URL.</p>
       <div class="fd-channels">
-        <div class="fd-channel fd-channel--beta">
+        <div class="fd-channel fd-channel--beta fd-channel--disabled" id="download-beta">
           <div class="fd-channel__header">
             <span class="fd-badge fd-badge--beta">Beta</span>
-            <span class="fd-version" id="beta-version">Latest</span>
+            <span class="fd-version" id="beta-download-version">Loading...</span>
           </div>
           <div class="fd-channel__buttons">
-            <a href="/dev/firmware-merged.bin" class="fd-btn fd-btn--beta" download>
+            <a id="beta-full-download" class="fd-btn fd-btn--beta fd-btn--disabled" aria-disabled="true">
               <span class="fd-btn__label">firmware-merged.bin</span>
               <span class="fd-btn__hint">Full flash (recommended)</span>
             </a>
-            <a href="/dev/firmware.bin" class="fd-btn fd-btn--beta" download>
+            <a id="beta-update-download" class="fd-btn fd-btn--beta fd-btn--disabled" aria-disabled="true">
               <span class="fd-btn__label">firmware.bin</span>
               <span class="fd-btn__hint">App update only</span>
             </a>
           </div>
         </div>
-        <div class="fd-channel fd-channel--stable fd-channel--disabled">
+        <div class="fd-channel fd-channel--stable fd-channel--disabled" id="download-stable">
           <div class="fd-channel__header">
             <span class="fd-badge fd-badge--stable">Stable</span>
-            <span class="fd-version">No release yet</span>
+            <span class="fd-version" id="stable-download-version">Loading...</span>
           </div>
           <div class="fd-channel__buttons">
-            <a class="fd-btn fd-btn--disabled">
+            <a id="stable-full-download" class="fd-btn fd-btn--disabled" aria-disabled="true">
               <span class="fd-btn__label">firmware-merged.bin</span>
-              <span class="fd-btn__hint">Coming soon</span>
+              <span class="fd-btn__hint">Full flash (recommended)</span>
             </a>
-            <a class="fd-btn fd-btn--disabled">
+            <a id="stable-update-download" class="fd-btn fd-btn--disabled" aria-disabled="true">
               <span class="fd-btn__label">firmware.bin</span>
-              <span class="fd-btn__hint">Coming soon</span>
+              <span class="fd-btn__hint">App update only</span>
             </a>
           </div>
         </div>
-        <div class="fd-channel fd-channel--debug">
+        <div class="fd-channel fd-channel--debug fd-channel--disabled" id="download-debug">
           <div class="fd-channel__header">
             <span class="fd-badge fd-badge--debug">Debug</span>
-            <span class="fd-version" id="debug-version-dl">Debug</span>
+            <span class="fd-version" id="debug-download-version">Loading...</span>
           </div>
           <div class="fd-channel__buttons">
-            <a href="/debug/firmware-debug.bin" class="fd-btn fd-btn--debug" download>
+            <a id="debug-full-download" class="fd-btn fd-btn--debug fd-btn--disabled" aria-disabled="true">
               <span class="fd-btn__label">firmware-debug.bin</span>
               <span class="fd-btn__hint">Debug build with crash capture</span>
             </a>
-            <a href="/debug/firmware.bin" class="fd-btn fd-btn--debug" download>
+            <a id="debug-update-download" class="fd-btn fd-btn--debug fd-btn--disabled" aria-disabled="true">
               <span class="fd-btn__label">firmware.bin</span>
               <span class="fd-btn__hint">App update only</span>
             </a>

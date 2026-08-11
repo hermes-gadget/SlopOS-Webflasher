@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "package": "esptool-js",
+  "version": "0.5.6",
+  "registry_tarball": "https://registry.npmjs.org/esptool-js/-/esptool-js-0.5.6.tgz",
+  "integrity": "sha512-5xkKxWNUuXyqdg4oS6rFVhGDr0yPNVF6qTHEMpZj26/0DeymfBlM2bT5RQdpEDatx211gDVe7op/9gKyMVbL9g==",
+  "license": "Apache-2.0",
+  "upstream_bundle_sha256": "475e0e98fd051dc11bf34d8f83410764da11f3a0c40ecd33fd9647dc46b098b8",
+  "vendored_bundle_sha256": "2267680962cf6e8d093368dabde102680ce9d92b684863c744ea1c94345496b2",
+  "local_patch_commit": "478a89559cad29392e1363689bc32331b6ae4085",
+  "transitive_dependencies": {
+    "pako": {
+      "version": "2.1.0",
+      "license": "MIT AND Zlib"
+    }
+  }
+}

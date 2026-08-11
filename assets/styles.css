@@ -647,7 +647,7 @@ h1, h2, h3, .font-pixel {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
-.step--busy .step__status { animation: pulse 1.5s ease-in-out infinite; }
+.step--active .step__status { animation: pulse 1.5s ease-in-out infinite; }
 
 /* ── Capture Console ─────────────────────── */
 .capture-hint {
@@ -731,6 +731,14 @@ h1, h2, h3, .font-pixel {
   padding: 12px;
   border: var(--border-w) solid var(--divider);
   background: var(--bg-secondary);
+}
+.privacy-notice strong { color: var(--accent-orange); }
+.privacy-review {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 10px;
+  color: var(--text-secondary);
 }
 
 @keyframes glitch {
