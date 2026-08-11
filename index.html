@@ -110,7 +110,7 @@
             <span class="step__status step__status--ready">Ready</span>
           </div>
           <div class="step__body">
-            <p>The firmware binary is downloaded directly from GitHub and flashed over WebSerial. If the flash button does nothing, put your T-Deck in download mode: <strong>hold BOOT, tap RESET, release BOOT</strong>, then click Flash again.</p>
+            <p>The firmware is authenticated with SigurdOS's pinned release key, checked against its signed T-Deck layout, and flashed over WebSerial. If the flash button does nothing, put your T-Deck in download mode: <strong>hold BOOT, tap RESET, release BOOT</strong>, then click Flash again.</p>
 
             <!-- Device info -->
             <div class="device-info" id="device-info">
@@ -127,7 +127,7 @@
                 <span class="erase-toggle__text">Full Erase <span class="erase-toggle__hint">(wipes settings)</span></span>
               </label>
               <div class="erase-toggle__info">
-                <strong>Full Erase</strong> — clears all settings and NVS data. Use for a fresh start or when switching between major versions.<br>
+                <strong>Full Erase</strong> — clears all settings and NVS data. After ESP32-S3 detection, you must type <strong>ERASE T-DECK</strong> to confirm this is the intended T-Deck.<br>
                 <strong>Update Only</strong> — preserves your WiFi, node name, and settings. Use for minor upgrades.
               </div>
             </div>
@@ -293,7 +293,7 @@
     </div>
   </footer>
 
-  <script type="module" src="assets/app.js?v=20260709a"></script>
+  <script type="module" src="assets/app.js?v=20260811a"></script>
 
 </body>
 </html>

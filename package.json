@@ -1,0 +1,8 @@
+{
+  "name": "sigurdos-webflasher",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

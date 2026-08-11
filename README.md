@@ -8,9 +8,9 @@ Flash firmware directly from the browser over WebSerial. No tools, no accounts, 
 
 - **Zero-install** — open the page, connect your T-Deck, and flash
 - **Stable & Beta channels** — pick your firmware version from GitHub releases
-- **Integrity-verified** — SHA-256 hashes are checked in-browser before every flash
+- **Publisher-authenticated** — an Ed25519-signed manifest is verified before vault promotion and again in-browser
 - **Pixel theme** — matches the sigurdos.dev design language
-- **Single merged binary** — downloads `firmware-merged.bin` and flashes at offset 0x0
+- **Manifest-defined layout** — signed offsets, sizes, digests, partition layout, and ESP32-S3 headers are validated before flashing
 - **Small Python backend** — serves the UI and a local firmware vault with path-traversal protection and strict security headers
 
 ## Quick Start
@@ -35,11 +35,13 @@ Open `http://127.0.0.1:8081`.
 
 The flasher is a small Python backend (`server.py`) serving a static single-page frontend:
 
-- `server.py` — HTTP server: static UI, firmware vault, `/api/releases` + `/api/hashes` endpoints, path-traversal protection, strict security headers
-- `sync_firmware.py` — mirrors firmware release binaries from GitHub into the local vault
+- `server.py` — HTTP server: exact static-file allowlist, firmware vault, `/api/releases`, path-traversal protection, strict security headers
+- `sync_firmware.py` — promotes only signed, schema-valid T-Deck release binaries into the local vault
+- `firmware_manifest.py` — shared T-Deck/ESP32-S3 manifest, partition, image-header, size, offset, and digest contract
+- `sign_firmware_manifest.py` — trusted-CI helper for creating `firmware-manifest.json` and its detached signature
 - `nginx.conf` — production reverse proxy (Docker)
 - `index.html` — pixel-themed UI (Press Start 2P headers, Pixelify Sans body)
-- `assets/app.js` — channel selection, SHA-256 verification, esptool-js flashing
+- `assets/app.js` + `assets/firmware-security.js` — channel selection, signature/schema/image verification, and esptool-js flashing
 - `assets/styles.css` — pixel theme matching sigurdos.dev
 - `assets/vendor/esptool-js-bundle.js` — browser ESP32 flashing library
 
@@ -49,17 +51,35 @@ Firmware binaries are synced from GitHub release assets into a local vault — t
 
 1. **Connect** — browser WebSerial connects to the T-Deck's UART
 2. **Choose channel** — pick Stable (latest release) or Beta (latest pre-release)
-3. **Fetch** — downloads `firmware-merged.bin` from the local server (`/latest/` or `/dev/`)
-4. **Verify** — browser computes the file's SHA-256 and compares it against the hash published by the server (`/api/hashes`)
-5. **Flash** — esptool-js writes the verified binary via serial bootloader
-6. **Reset** — device reboots into SigurdOS
+3. **Authenticate** — verifies the release manifest with the public key pinned in the browser
+4. **Validate** — downloads the manifest-selected images and checks sizes, SHA-256 digests, ESP32-S3 headers, and partition layout
+5. **Identify** — esptool must report exactly `ESP32-S3`; Full Erase also requires typing `ERASE T-DECK`
+6. **Flash** — esptool-js writes only the signed manifest's offsets via the serial bootloader
+7. **Reset** — device reboots into SigurdOS
 
 ## Requirements
 
 - Chrome, Edge, or Opera (WebSerial API)
 - HTTPS or localhost
 - LilyGo T-Deck (ESP32-S3) with USB connected
-- Firmware release on GitHub with a `firmware-merged.bin` asset
+- Firmware release on GitHub with `firmware-merged.bin`, `firmware.bin`, `firmware-debug.bin`, `firmware-manifest.json`, and `firmware-manifest.sig`
+
+Unsigned legacy releases intentionally fail closed and cannot become `latest`, `dev`, or `debug`.
+
+## Release signing
+
+The release workflow must keep the Ed25519 private key in trusted CI secrets, outside this repository and outside the firmware vault. After producing the three firmware images, create the immutable manifest and detached signature with:
+
+```bash
+python3 sign_firmware_manifest.py \
+  --artifacts-dir artifacts \
+  --release "$GITHUB_REF_NAME" \
+  --private-key "$RUNNER_TEMP/firmware-manifest-ed25519.pem"
+```
+
+The helper validates the merged and application images before signing and fails if the CI key does not match [firmware-signing-public-key.pem](firmware-signing-public-key.pem). The pinned public-key DER SHA-256 fingerprint is `a71e3378758d749de3b440bd27a92776fdcd3787a06869a3c3c1b015feb9e722`. Never commit or upload the private key as a release artifact.
+
+This protects against release-asset or vault substitution. A fully compromised web origin could replace the browser verifier itself, so production devices should additionally enforce Espressif Secure Boot/signed firmware or load the verifier from a separately trusted immutable origin.
 
 ### Manual bootloader entry
 
@@ -79,3 +99,5 @@ python3 server.py
 ```
 
 Open `http://127.0.0.1:8082`.
+
+The development server binds only to loopback by default. An intentional network deployment can pass a host explicitly (`python3 server.py 8082 0.0.0.0`) or set `SIGURDOS_HOST`, and should remain behind the production reverse proxy.

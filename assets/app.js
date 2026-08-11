@@ -5,13 +5,23 @@
    not from GitHub. Data is synced by sync_firmware.py cron job.
    ═══════════════════════════════════════ */
 
+import {
+  TARGET_BOARD,
+  TARGET_CHIP,
+  assertTargetDevice,
+  buildFlashPlan,
+  confirmFullErase,
+  verifySignedManifest,
+} from '/assets/firmware-security.js';
+
 const API_BASE = '/api';
+const MANIFEST_FILENAME = 'firmware-manifest.json';
+const MANIFEST_SIGNATURE_FILENAME = 'firmware-manifest.sig';
 const RELEASES_CACHE_KEY = 'sigurdos-releases-cache';
 const RELEASES_CACHE_TTL = 5 * 60 * 1000; // 5 min
 
 let selectedChannel = null;   // 'stable' | 'beta' | 'debug'
 let releaseData = null;       // { stable: {...}, beta: {...} }
-let firmwareHashes = {};
 let serialPort = null;
 let esptoolPromise = null;
 let flashing = false;
@@ -81,12 +91,6 @@ function enableBtn(btn, enabled) {
 }
 
 // ── Local API ─────────────────────────────
-async function fetchHashes() {
-  const resp = await fetch(`${API_BASE}/hashes`, { cache: 'no-store', headers: { Accept: 'application/json' } });
-  if (!resp.ok) throw new Error(`Hash API error: ${resp.status}`);
-  firmwareHashes = await resp.json();
-}
-
 async function fetchReleases() {
   // Check local cache first (avoids unnecessary requests)
   try {
@@ -154,44 +158,48 @@ function getFirmwareUrl(channel, filename) {
   return `${API_BASE}/firmware/${channelPath}/${filename}`;
 }
 
-async function sha256Hex(buf) {
-  const digest = await crypto.subtle.digest('SHA-256', buf);
-  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+async function fetchSignedManifest(channel) {
+  const [manifestResponse, signatureResponse] = await Promise.all([
+    fetch(getFirmwareUrl(channel, MANIFEST_FILENAME), { cache: 'no-store' }),
+    fetch(getFirmwareUrl(channel, MANIFEST_SIGNATURE_FILENAME), { cache: 'no-store' }),
+  ]);
+  if (!manifestResponse.ok) throw new Error(`Signed manifest download failed: ${manifestResponse.status}`);
+  if (!signatureResponse.ok) throw new Error(`Manifest signature download failed: ${signatureResponse.status}`);
+  const manifestBuffer = await manifestResponse.arrayBuffer();
+  const signatureText = await signatureResponse.text();
+  const manifest = await verifySignedManifest(manifestBuffer, signatureText);
+  log(`Verified signed ${manifest.release} manifest for ${manifest.board} / ${manifest.chip}.`, 'green');
+  return manifest;
 }
 
-async function downloadBinary(url, expectedSha256 = '') {
-  log(`Downloading firmware binary...`);
+async function downloadBinary(url, image) {
+  log(`Downloading ${image.file}...`);
   const resp = await fetch(url, { cache: 'no-store' });
   if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
+  const declaredLength = resp.headers.get('Content-Length');
+  if (declaredLength !== null && Number(declaredLength) !== image.size) {
+    throw new Error(`${image.file} response size differs from its signed manifest`);
+  }
   const buf = await resp.arrayBuffer();
-  const actualSha256 = await sha256Hex(buf);
-  if (!expectedSha256) {
-    throw new Error('Firmware integrity metadata is unavailable');
-  }
-  if (actualSha256 !== expectedSha256.toLowerCase()) {
-    throw new Error(`Firmware integrity check failed (SHA-256 mismatch)`);
-  }
-  log(`Downloaded ${buf.byteLength.toLocaleString()} bytes. SHA-256: ${actualSha256}`, 'green');
+  if (buf.byteLength !== image.size) throw new Error(`${image.file} size differs from its signed manifest`);
+  log(`Downloaded ${buf.byteLength.toLocaleString()} signed bytes for ${image.file}.`, 'green');
   return buf;
 }
 
-function selectedFirmwareHash(channel, filename) {
-  const channelPath = channel === 'stable' ? 'latest' : channel === 'debug' ? 'debug' : 'dev';
-  return firmwareHashes[`${channelPath}/${filename}`] || '';
+async function prepareFlashPlan(channel, mode) {
+  const manifest = await fetchSignedManifest(channel);
+  const binaries = new Map();
+  for (const image of manifest.modes[mode]) {
+    const buffer = await downloadBinary(getFirmwareUrl(channel, image.file), image);
+    binaries.set(image.file, buffer);
+  }
+  const fileArray = await buildFlashPlan(manifest, mode, binaries);
+  return { manifest, fileArray };
 }
 
 async function withTimeout(promise, ms, msg) {
   const timer = new Promise((_, reject) => setTimeout(() => reject(new Error(msg || `Timed out after ${ms}ms`)), ms));
   return Promise.race([promise, timer]);
-}
-
-function binaryToBinaryString(buf) {
-  const bytes = new Uint8Array(buf);
-  let s = '';
-  for (let i = 0; i < bytes.length; i++) {
-    s += String.fromCharCode(bytes[i]);
-  }
-  return s;
 }
 
 // ── WebSerial ─────────────────────────────
@@ -270,27 +278,14 @@ async function flashFirmware() {
   consoleEl.classList.add('console--visible');
 
   const channel = selectedChannel;
+  const fullEraseRequested = eraseAll;
   let transport = null;
-
-  // Choose binary and flash address based on erase mode
-  // Full Erase: merged binary at 0x0 (bootloader + partitions + app)
-  // Update Only: app-only binary at 0x10000 (preserves bootloader, partition table, and NVS)
-  let filename;
-  let flashAddress;
-  if (eraseAll) {
-    filename = channel === 'debug' ? 'firmware-debug.bin' : 'firmware-merged.bin';
-    flashAddress = 0;
-  } else {
-    filename = 'firmware.bin';
-    flashAddress = 0x10000;
-  }
-  const firmwareUrl = getFirmwareUrl(channel, filename);
+  if (eraseToggle) eraseToggle.disabled = true;
 
   try {
-    setProgress(5, 'Downloading firmware');
-    const firmwareName = channel === 'debug' ? 'firmware-debug.bin' : 'firmware-merged.bin';
-    const firmwareBuf = await downloadBinary(firmwareUrl, selectedFirmwareHash(channel, firmwareName));
-    const binaryString = binaryToBinaryString(firmwareBuf);
+    const flashMode = fullEraseRequested ? (channel === 'debug' ? 'debug' : 'full') : 'update';
+    setProgress(5, 'Verifying signed firmware manifest');
+    const { manifest, fileArray } = await prepareFlashPlan(channel, flashMode);
 
     setProgress(15, 'Loading esptool-js');
     log('Loading browser flasher library...');
@@ -323,10 +318,11 @@ async function flashFirmware() {
       12000,
       'Timed out connecting to ESP32-S3. Put the T-Deck in download mode: hold BOOT, tap RESET, release BOOT, then click Flash.'
     );
-    log(`Chip detected: ${chipInfo || 'ESP32-S3'}`, 'green');
+    const detectedChip = loader.chip?.CHIP_NAME || '';
+    log(`Chip detected: ${detectedChip || chipInfo || 'unknown'}`, detectedChip === TARGET_CHIP ? 'green' : 'red');
 
     // Show device info
-    let chipDesc = chipInfo || 'ESP32-S3';
+    let chipDesc = detectedChip || chipInfo || 'unknown';
     let macAddr = '?';
     let flashSize = '?';
     try {
@@ -339,18 +335,26 @@ async function flashFirmware() {
     chipFlash.textContent = typeof flashSize === 'string' ? flashSize : `${flashSize}MB`;
     deviceInfo.classList.add('device-info--visible');
 
-    const tagName = releaseData?.[channel]?.tag_name || channel;
-    const modeLabel = eraseAll ? 'Full Erase' : 'Update Only';
-    const addressLabel = eraseAll ? '0x0' : '0x10000';
-    setProgress(30, `${modeLabel}: writing firmware at ${addressLabel}`);
-    log(`Flashing ${tagName} (${channel} channel, ${modeLabel}, address ${addressLabel})...`);
+    // USB filters are only discovery hints. The ROM-reported chip is the write gate.
+    assertTargetDevice(detectedChip, manifest);
+
+    if (fullEraseRequested) {
+      confirmFullErase(window.prompt.bind(window));
+      log(`Destructive erase explicitly confirmed for ${TARGET_BOARD}.`, 'orange');
+    }
+
+    const tagName = manifest.release;
+    const modeLabel = fullEraseRequested ? 'Full Erase' : 'Update Only';
+    const addressLabel = fileArray.map(file => `0x${file.address.toString(16)}`).join(', ');
+    setProgress(30, `${modeLabel}: writing signed firmware at ${addressLabel}`);
+    log(`Flashing ${tagName} (${channel} channel, ${modeLabel}, signed address ${addressLabel})...`);
 
     await loader.writeFlash({
-      fileArray: [{ data: binaryString, address: flashAddress }],
+      fileArray,
       flashSize: 'keep',
       flashMode: 'keep',
       flashFreq: 'keep',
-      eraseAll: eraseAll,
+      eraseAll: fullEraseRequested,
       compress: true,
       reportProgress: (_idx, written, total) => {
         const pct = total > 0 ? Math.round(30 + (written / total) * 65) : 30;
@@ -406,6 +410,7 @@ async function flashFirmware() {
         else if (typeof transport.close === 'function') await transport.close();
       }
     } catch (_) {}
+    if (eraseToggle) eraseToggle.disabled = false;
     flashing = false;
   }
 }
@@ -687,10 +692,10 @@ async function init() {
 
   // Fetch releases from local API
   try {
-    await Promise.all([fetchReleases(), fetchHashes()]);
+    await fetchReleases();
   } catch (err) {
-    log(`Failed to fetch release integrity data: ${err.message}`, 'red');
-    log('Firmware flashing is disabled until release metadata and hashes are available.', 'orange');
+    log(`Failed to fetch release data: ${err.message}`, 'red');
+    log('Firmware flashing is disabled until signed release metadata is available.', 'orange');
     releaseData = null;
   }
 
