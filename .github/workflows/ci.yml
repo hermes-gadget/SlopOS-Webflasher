@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v7
-      - uses: actions/setup-node@1d0ff469b7f7b3f6d715c7c7bdf3c8f4e6c8c8c8 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
       - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
